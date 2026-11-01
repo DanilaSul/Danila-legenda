@@ -134,7 +134,11 @@ async function api(req, env, path) {
       await db.prepare(`INSERT INTO videos (id,data,deadline,done,updated,deleted,by_user) VALUES (?,?,?,?,?,0,?)
         ON CONFLICT(id) DO UPDATE SET data=excluded.data,deadline=excluded.deadline,done=excluded.done,updated=excluded.updated,deleted=0${resetFlags ? ',n24=0,nover=0' : ''}`)
         .bind(v.id, JSON.stringify(v), v.deadline, v.done ? 1 : 0, now(), u.tg_id).run();
-      if (!old) await notifyRole(env, ['video'], `🎬 Новое видео: <b>${escH(v.team || 'команда')}</b> · ${escH(v.quest)}\nСдать до ${fmtTash(v.deadline)}`);
+      if (!old) {
+        await notifyRole(env, ['video'], `🎬 Новое видео: <b>${escH(v.team || 'команда')}</b> · ${escH(v.quest)}\nСдать до ${fmtTash(v.deadline)}`);
+        await groupSend(env, `🎬 <b>Купили видео</b>\n${escH(v.team || 'команда')} · ${escH(v.quest)}\nСдать до ${fmtTash(v.deadline)}`, null, 'videos');
+      }
+      if (old && !old.done && v.done) await groupSend(env, `✅ <b>Видео сдано</b>\n${escH(v.team)} · ${escH(v.quest)}`, null, 'videos');
       if (old && !old.done && v.done) await notifyRole(env, ['owner'], `✅ Видео сдано: <b>${escH(v.team)}</b> · ${escH(v.quest)} (${escH(u.name)})`);
       return json({ ok: true });
     }
@@ -144,12 +148,16 @@ async function api(req, env, path) {
   if (parts[0] === 'group') {
     if (m === 'POST' && parts[1] === 'send') { // отправить готовый текст отчёта в группу
       if (!canCash(u) && !isOwner(u)) return json({ error: 'forbidden' }, 403);
-      const r = await groupSend(env, escH(String(body.text || '')).slice(0, 4000));
+      const r = await groupSend(env, escH(String(body.text || '')).slice(0, 4000), null, 'reports');
       return json({ ok: !!r, error: r ? undefined : 'Группа не подключена' }, r ? 200 : 400);
     }
     if (!isOwner(u)) return json({ error: 'forbidden' }, 403);
     if (m === 'GET') return json({ group: await getKV(env, 'group') });
-    if (m === 'POST' && parts[1] === 'test') { const r = await groupSend(env, '✅ Тест: бот QuestHouse на связи'); return json({ ok: !!r }); }
+    if (m === 'POST' && parts[1] === 'test') {
+      const r1 = await groupSend(env, '✅ Тест: сюда будут приходить брони', null, 'bookings');
+      const r2 = await groupSend(env, '✅ Тест: сюда будут приходить касса и итоги дня', null, 'reports');
+      const g = await getKV(env, 'group'); if (g && g.topics && g.topics.videos) await groupSend(env, '✅ Тест: сюда будут приходить видео', null, 'videos');
+      const r = r1 && r2; return json({ ok: !!r }); }
     if (m === 'POST' && parts[1] === 'daily') { const r = await dailyReport(env, body.date || tashDate()); return json({ ok: !!r }); }
     if (m === 'DELETE') { await db.prepare('DELETE FROM settings WHERE k=?').bind('group').run(); return json({ ok: true }); }
   }
@@ -191,14 +199,19 @@ async function getKV(env, k) { const r = await env.DB.prepare('SELECT data FROM 
 async function setKV(env, k, v) { await env.DB.prepare('INSERT INTO settings (k,data,updated) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET data=excluded.data, updated=excluded.updated').bind(k, JSON.stringify(v), now()).run(); }
 async function getSettings(env) { return (await getKV(env, 'main')) || {}; }
 // flag — имя настройки-переключателя (notifyBookings / dailyReport); по умолчанию включено
-async function groupSend(env, text, flag) {
+// topic: 'bookings' | 'reports' | 'videos' — отдельные темы (подразделы) группы
+async function groupSend(env, text, flag, topic) {
   const g = await getKV(env, 'group'); if (!g || !g.chat_id) return null;
   if (flag) { const st = await getSettings(env); if (st[flag] === false) return null; }
-  const r = await tg(env, 'sendMessage', { chat_id: g.chat_id, text, parse_mode: 'HTML', disable_web_page_preview: true });
+  if (!topic && flag === 'notifyBookings') topic = 'bookings';
+  const thread = topic && g.topics && g.topics[topic];
+  if (topic === 'videos' && !thread) return null; // видео в группу — только если подключена своя тема
+  const send = (chat_id, th) => tg(env, 'sendMessage', { chat_id, text, parse_mode: 'HTML', disable_web_page_preview: true, ...(th ? { message_thread_id: th } : {}) });
+  let r = await send(g.chat_id, thread);
   if (!r.ok && r.parameters && r.parameters.migrate_to_chat_id) { // группа стала супергруппой
-    g.chat_id = r.parameters.migrate_to_chat_id; await setKV(env, 'group', g);
-    return tg(env, 'sendMessage', { chat_id: g.chat_id, text, parse_mode: 'HTML' });
+    g.chat_id = r.parameters.migrate_to_chat_id; await setKV(env, 'group', g); r = await send(g.chat_id, thread);
   }
+  if (!r.ok && thread && /thread|topic/i.test(r.description || '')) r = await send(g.chat_id); // тему удалили — шлём в общий чат
   return r.ok ? r : null;
 }
 const WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -267,7 +280,7 @@ async function dailyReport(env, date) {
     if (pin !== tot.revenue) t += `⚠️ Расхождение с бронями: ${pin > tot.revenue ? '+' : '−'}${money(Math.abs(pin - tot.revenue))}\n`;
     if (d.note) t += `📝 ${escH(d.note)}\n`;
   } else if (tot.games) t += `\n⚠️ Касс-отчёт за день не создан`;
-  return groupSend(env, t.trim());
+  return groupSend(env, t.trim(), null, 'reports');
 }
 
 /* ---------- Вебхук бота ---------- */
@@ -280,10 +293,21 @@ async function webhook(req, env) {
     await tg(env, 'sendMessage', { chat_id: upd.my_chat_member.chat.id, text: 'Привет! Чтобы получать сюда брони и отчёты, владелец должен отправить в эту группу команду /connect' });
   if (msg && msg.migrate_to_chat_id) { const g = await getKV(env, 'group'); if (g && g.chat_id === msg.chat.id) { g.chat_id = msg.migrate_to_chat_id; await setKV(env, 'group', g); } }
   if (msg && msg.text && ['group', 'supergroup'].includes(msg.chat.type)) {
-    if (/^\/connect(@\w+)?/.test(msg.text)) {
+    const cmd = (msg.text.match(/^\/(connect|bookings|reports|videos)(@\w+)?(\s|$)/) || [])[1];
+    if (cmd) {
       const u = await env.DB.prepare("SELECT * FROM users WHERE tg_id=? AND role='owner' AND status='approved'").bind(msg.from.id).first();
-      if (!u) await tg(env, 'sendMessage', { chat_id: msg.chat.id, text: 'Подключить группу может только владелец приложения.' });
-      else { await setKV(env, 'group', { chat_id: msg.chat.id, title: msg.chat.title, at: now() }); await tg(env, 'sendMessage', { chat_id: msg.chat.id, text: '✅ Группа подключена! Сюда будут приходить новые брони и итоги дня.' }); }
+      if (!u) { await tg(env, 'sendMessage', { chat_id: msg.chat.id, message_thread_id: msg.message_thread_id, text: 'Подключать группу может только владелец приложения.' }); return new Response('ok'); }
+      let g = await getKV(env, 'group');
+      if (!g || g.chat_id !== msg.chat.id) g = { chat_id: msg.chat.id, topics: {} };
+      g.title = msg.chat.title; g.at = now(); g.topics = g.topics || {};
+      const thread = msg.is_topic_message ? msg.message_thread_id : null;
+      const names = { bookings: 'брони', reports: 'касса и итоги дня', videos: 'видео' };
+      let text;
+      if (cmd === 'connect') text = '✅ Группа подключена!\nЧтобы разнести по подразделам (темам), отправьте в нужной теме:\n/bookings — сюда брони\n/reports — сюда касса и итоги дня\n/videos — сюда видео (по желанию)';
+      else if (!thread) { delete g.topics[cmd]; text = `✅ ${names[cmd][0].toUpperCase() + names[cmd].slice(1)} будут приходить в общий чат.${msg.chat.is_forum ? '\nЧтобы в отдельную тему — отправьте команду внутри этой темы.' : ''}`; }
+      else { g.topics[cmd] = thread; text = `✅ В эту тему будут приходить: ${names[cmd]}`; }
+      await setKV(env, 'group', g);
+      await tg(env, 'sendMessage', { chat_id: msg.chat.id, text, ...(thread ? { message_thread_id: thread } : {}) });
     }
     return new Response('ok');
   }

@@ -663,7 +663,10 @@ async function loadGroup(){
   const r=await api('GET','group'); const box=$('groupBox'); if(!box||!r.ok) return;
   const g=r.data.group, st=S.settings;
   const tgl=(k,label)=>`<div class="row" style="margin-top:10px"><span class="grow">${label}</span><div class="seg" style="width:130px"><button data-tgl="${k}:1" class="${st[k]!==false?'on':''}">Вкл</button><button data-tgl="${k}:0" class="${st[k]===false?'on':''}">Выкл</button></div></div>`;
+  const tp=g&&g.topics||{}, topicRow=(k,label,cmd)=>`<div class="sum"><span>${label}</span><b class="${tp[k]?'in':''}" style="font-weight:500">${tp[k]?'отдельная тема':(k==='videos'?'не отправляются':'общий чат')}</b></div>`;
   box.innerHTML = g ? `<div class="row">${ic('check')}<div class="grow"><b>${esc(g.title||'Группа')}</b><div class="muted">подключена</div></div></div>
+      <div style="margin-top:8px">${topicRow('bookings','Брони')}${topicRow('reports','Касса и итоги')}${topicRow('videos','Видео')}</div>
+      <div class="muted" style="margin-top:6px">Чтобы разнести по темам: включи в группе «Темы», создай темы и в каждой отправь команду: <b>/bookings</b> — брони, <b>/reports</b> — касса, <b>/videos</b> — видео.</div>
       ${tgl('notifyBookings','Новые брони, отмены, переносы')}
       ${tgl('dailyReport','Итоги дня автоматически')}
       <div class="row" style="margin-top:10px"><span class="grow">Время итогов (Ташкент)</span><input type="time" style="width:130px" value="${esc(st.dailyTime||'23:30')}" data-set="dailyTime"></div>
