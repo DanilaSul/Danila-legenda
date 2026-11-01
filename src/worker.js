@@ -27,7 +27,7 @@ async function checkInitData(initData, botToken) {
 
 /* ---------- Telegram Bot API ---------- */
 async function tg(env, method, body) {
-  const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
+  const r = await fetch(`${env.TG_API || 'https://api.telegram.org'}/bot${env.BOT_TOKEN}/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
   });
   return r.json().catch(() => ({}));
@@ -98,11 +98,19 @@ async function api(req, env, path) {
     if (!approved(u)) return json({ error: 'forbidden' }, 403);
     if (m === 'PUT') {
       const b = body; if (!b.id || !b.date) return json({ error: 'bad' }, 400);
+      b.by = b.by || u.name;
+      const old = await db.prepare('SELECT data, notified FROM bookings WHERE id=?').bind(b.id).first();
       await db.prepare('INSERT INTO bookings (id,date,data,updated,deleted,by_user) VALUES (?,?,?,?,0,?) ON CONFLICT(id) DO UPDATE SET date=excluded.date,data=excluded.data,updated=excluded.updated,deleted=0,by_user=excluded.by_user')
         .bind(b.id, b.date, JSON.stringify(b), now(), u.tg_id).run();
+      await bookingNotify(env, b, old ? JSON.parse(old.data) : null, old ? old.notified : 0);
       return json({ ok: true });
     }
-    if (m === 'DELETE') { await db.prepare('UPDATE bookings SET deleted=1, updated=? WHERE id=?').bind(now(), parts[1]).run(); return json({ ok: true }); }
+    if (m === 'DELETE') {
+      const old = await db.prepare('SELECT data, notified FROM bookings WHERE id=?').bind(parts[1]).first();
+      await db.prepare('UPDATE bookings SET deleted=1, updated=? WHERE id=?').bind(now(), parts[1]).run();
+      if (old && old.notified) { const b = JSON.parse(old.data); await groupSend(env, `🗑 <b>Бронь удалена</b>\n${bookingLine(b)}\nУдалил: ${escH(u.name)}`, 'notifyBookings'); }
+      return json({ ok: true });
+    }
   }
 
   if (parts[0] === 'report') {
@@ -131,6 +139,19 @@ async function api(req, env, path) {
       return json({ ok: true });
     }
     if (m === 'DELETE') { await db.prepare('UPDATE videos SET deleted=1, updated=? WHERE id=?').bind(now(), parts[1]).run(); return json({ ok: true }); }
+  }
+
+  if (parts[0] === 'group') {
+    if (m === 'POST' && parts[1] === 'send') { // отправить готовый текст отчёта в группу
+      if (!canCash(u) && !isOwner(u)) return json({ error: 'forbidden' }, 403);
+      const r = await groupSend(env, escH(String(body.text || '')).slice(0, 4000));
+      return json({ ok: !!r, error: r ? undefined : 'Группа не подключена' }, r ? 200 : 400);
+    }
+    if (!isOwner(u)) return json({ error: 'forbidden' }, 403);
+    if (m === 'GET') return json({ group: await getKV(env, 'group') });
+    if (m === 'POST' && parts[1] === 'test') { const r = await groupSend(env, '✅ Тест: бот QuestHouse на связи'); return json({ ok: !!r }); }
+    if (m === 'POST' && parts[1] === 'daily') { const r = await dailyReport(env, body.date || tashDate()); return json({ ok: !!r }); }
+    if (m === 'DELETE') { await db.prepare('DELETE FROM settings WHERE k=?').bind('group').run(); return json({ ok: true }); }
   }
 
   if (parts[0] === 'settings' && m === 'PUT') {
@@ -165,11 +186,107 @@ function fmtTash(ms) {
   return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+/* ---------- Группа ---------- */
+async function getKV(env, k) { const r = await env.DB.prepare('SELECT data FROM settings WHERE k=?').bind(k).first(); return r ? JSON.parse(r.data) : null; }
+async function setKV(env, k, v) { await env.DB.prepare('INSERT INTO settings (k,data,updated) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET data=excluded.data, updated=excluded.updated').bind(k, JSON.stringify(v), now()).run(); }
+async function getSettings(env) { return (await getKV(env, 'main')) || {}; }
+// flag — имя настройки-переключателя (notifyBookings / dailyReport); по умолчанию включено
+async function groupSend(env, text, flag) {
+  const g = await getKV(env, 'group'); if (!g || !g.chat_id) return null;
+  if (flag) { const st = await getSettings(env); if (st[flag] === false) return null; }
+  const r = await tg(env, 'sendMessage', { chat_id: g.chat_id, text, parse_mode: 'HTML', disable_web_page_preview: true });
+  if (!r.ok && r.parameters && r.parameters.migrate_to_chat_id) { // группа стала супергруппой
+    g.chat_id = r.parameters.migrate_to_chat_id; await setKV(env, 'group', g);
+    return tg(env, 'sendMessage', { chat_id: g.chat_id, text, parse_mode: 'HTML' });
+  }
+  return r.ok ? r : null;
+}
+const WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+const MON = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function humanDate(ds) { const [y, m, d] = ds.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d)); return `${WD[dt.getUTCDay()]}, ${d} ${MON[m - 1]}`; }
+const money = n => String(Math.round(+n || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' сум';
+const tashDate = (ms = now()) => new Date(ms + 5 * H).toISOString().slice(0, 10);
+function finalPrice(b) { const p = +b.price || 0, d = +b.discount || 0; return Math.max(0, Math.round(p - (b.discType === 'pct' ? p * d / 100 : d))); }
+const bookingLine = b => `🎯 <b>${escH(b.quest)}</b> · ${humanDate(b.date)} · <b>${escH(b.time)}</b>${b.name ? ' · ' + escH(b.name) : ''}`;
+function bookingText(b) {
+  const fp = finalPrice(b), disc = fp !== (+b.price || 0);
+  let t = `🆕 <b>Новая бронь</b>\n🎯 <b>${escH(b.quest)}</b>\n📅 ${humanDate(b.date)} · <b>${escH(b.time)}</b>\n`;
+  t += `👤 ${escH(b.name || 'без имени')}${b.phone ? ' · ' + escH(b.phone) : ''}\n👥 ${escH(b.guests || '?')} чел.\n`;
+  t += `💰 ${money(fp)}${disc ? ` (скидка ${b.discType === 'pct' ? b.discount + '%' : money(b.discount)})` : ''}`;
+  if (+b.prepay) t += ` · предоплата ${money(b.prepay)}`;
+  if (b.comment) t += `\n📝 ${escH(b.comment)}`;
+  if (b.by) t += `\n<i>Добавил(а): ${escH(b.by)}</i>`;
+  return t;
+}
+async function bookingNotify(env, b, old, notified) {
+  if (!notified) {
+    // ждём, пока впишут имя или телефон; если не впишут — cron отправит через 3 минуты
+    if ((b.name || b.phone) && b.status !== 'cancel') {
+      if (await groupSend(env, bookingText(b), 'notifyBookings')) await env.DB.prepare('UPDATE bookings SET notified=1 WHERE id=?').bind(b.id).run();
+    }
+    return;
+  }
+  if (!old) return;
+  if (b.status === 'cancel' && old.status !== 'cancel') return groupSend(env, `❌ <b>Бронь отменена</b>\n${bookingLine(b)}`, 'notifyBookings');
+  if (old.status === 'cancel' && b.status !== 'cancel') return groupSend(env, `♻️ <b>Бронь восстановлена</b>\n${bookingLine(b)}`, 'notifyBookings');
+  if (old.date !== b.date || old.time !== b.time || old.quest !== b.quest)
+    return groupSend(env, `🔁 <b>Бронь перенесена</b>\nбыло: ${escH(old.quest)} · ${humanDate(old.date)} · ${escH(old.time)}\nстало: ${bookingLine(b)}`, 'notifyBookings');
+}
+function split(st, bookings) {
+  const quests = st.quests || [], mgmt = st.mgmt || [];
+  const byQ = {}; quests.forEach(q => byQ[q.name] = { q, games: 0, revenue: 0 });
+  for (const b of bookings) { if (b.status === 'cancel') continue; const r = byQ[b.quest] || (byQ[b.quest] = { q: { name: b.quest, actors: 0 }, games: 0, revenue: 0 }); r.games++; r.revenue += finalPrice(b); }
+  const tot = { games: 0, revenue: 0, actors: 0, owner: 0, mg: mgmt.map(m => ({ name: m.name, pct: +m.pct || 0, sum: 0 })) };
+  const rows = Object.values(byQ).map(r => {
+    const actors = r.games * (+r.q.actors || 0), base = r.revenue - actors; let mgSum = 0;
+    mgmt.forEach((m, i) => { const v = base * (+m.pct || 0) / 100; tot.mg[i].sum += v; mgSum += v; });
+    tot.games += r.games; tot.revenue += r.revenue; tot.actors += actors; tot.owner += base - mgSum;
+    return { ...r, actors };
+  });
+  return { rows, tot };
+}
+async function dailyReport(env, date) {
+  const st = await getSettings(env);
+  const bookings = (await env.DB.prepare('SELECT data FROM bookings WHERE date=? AND deleted=0').bind(date).all()).results.map(r => JSON.parse(r.data));
+  const { rows, tot } = split(st, bookings);
+  const cancelled = bookings.filter(b => b.status === 'cancel').length;
+  let t = `📊 <b>Итоги дня · ${humanDate(date)}</b>\n\nИгр: <b>${tot.games}</b>${cancelled ? ` (отмен: ${cancelled})` : ''}\nВыручка: <b>${money(tot.revenue)}</b>\n`;
+  for (const r of rows) if (r.games) t += `  • ${escH(r.q.name)}: ${r.games} — ${money(r.revenue)}\n`;
+  if (tot.games) {
+    t += `\nАктёры: ${money(tot.actors)}\n`;
+    tot.mg.forEach(m => t += `${escH(m.name)} ${m.pct}%: ${money(m.sum)}\n`);
+    t += `${escH(st.ownerName || 'Остаток')}: <b>${money(tot.owner)}</b>\n`;
+  }
+  const rep = await env.DB.prepare('SELECT data FROM reports WHERE date=? AND deleted=0').bind(date).first();
+  if (rep) {
+    const d = JSON.parse(rep.data), vals = d.values || {}; let pin = 0, pout = 0;
+    t += `\n💵 <b>Касса</b>${d.by ? ' (' + escH(d.by) + ')' : ''}\n`;
+    (st.payFields || []).forEach(f => { if (vals[f] != null) { pin += +vals[f]; t += `  • ${escH(f)}: ${money(vals[f])}\n`; } });
+    (st.expenseFields || []).forEach(f => { if (vals[f] != null) { pout += +vals[f]; t += `  • ${escH(f)}: −${money(vals[f])}\n`; } });
+    t += `Остаток в кассе: <b>${money(pin - pout)}</b>\n`;
+    if (pin !== tot.revenue) t += `⚠️ Расхождение с бронями: ${pin > tot.revenue ? '+' : '−'}${money(Math.abs(pin - tot.revenue))}\n`;
+    if (d.note) t += `📝 ${escH(d.note)}\n`;
+  } else if (tot.games) t += `\n⚠️ Касс-отчёт за день не создан`;
+  return groupSend(env, t.trim());
+}
+
 /* ---------- Вебхук бота ---------- */
 async function webhook(req, env) {
   if (req.headers.get('x-telegram-bot-api-secret-token') !== env.WEBHOOK_SECRET) return new Response('no', { status: 403 });
   const upd = await req.json().catch(() => ({}));
   const msg = upd.message;
+  if (upd.my_chat_member && ['group', 'supergroup'].includes(upd.my_chat_member.chat.type) && ['member', 'administrator'].includes(upd.my_chat_member.new_chat_member.status)
+      && !['member', 'administrator'].includes(upd.my_chat_member.old_chat_member.status))
+    await tg(env, 'sendMessage', { chat_id: upd.my_chat_member.chat.id, text: 'Привет! Чтобы получать сюда брони и отчёты, владелец должен отправить в эту группу команду /connect' });
+  if (msg && msg.migrate_to_chat_id) { const g = await getKV(env, 'group'); if (g && g.chat_id === msg.chat.id) { g.chat_id = msg.migrate_to_chat_id; await setKV(env, 'group', g); } }
+  if (msg && msg.text && ['group', 'supergroup'].includes(msg.chat.type)) {
+    if (/^\/connect(@\w+)?/.test(msg.text)) {
+      const u = await env.DB.prepare("SELECT * FROM users WHERE tg_id=? AND role='owner' AND status='approved'").bind(msg.from.id).first();
+      if (!u) await tg(env, 'sendMessage', { chat_id: msg.chat.id, text: 'Подключить группу может только владелец приложения.' });
+      else { await setKV(env, 'group', { chat_id: msg.chat.id, title: msg.chat.title, at: now() }); await tg(env, 'sendMessage', { chat_id: msg.chat.id, text: '✅ Группа подключена! Сюда будут приходить новые брони и итоги дня.' }); }
+    }
+    return new Response('ok');
+  }
   if (msg && msg.text) {
     const kb = { inline_keyboard: [[{ text: '📅 Открыть приложение', web_app: { url: appUrl(req) } }]] };
     if (msg.text.startsWith('/start') || msg.text.startsWith('/app'))
@@ -183,6 +300,21 @@ async function webhook(req, env) {
 /* ---------- Напоминания о видео (cron) ---------- */
 async function remind(env) {
   const t = now();
+  // брони, созданные в 1 клик без имени: отправляем в группу через 3 минуты
+  const pend = (await env.DB.prepare('SELECT id, data FROM bookings WHERE notified=0 AND deleted=0 AND updated<?').bind(t - 3 * 60e3).all()).results;
+  for (const r of pend) {
+    const b = JSON.parse(r.data);
+    if (b.status !== 'cancel' && await groupSend(env, bookingText(b), 'notifyBookings')) await env.DB.prepare('UPDATE bookings SET notified=1 WHERE id=?').bind(r.id).run();
+    else if (b.status === 'cancel') await env.DB.prepare('UPDATE bookings SET notified=2 WHERE id=?').bind(r.id).run();
+  }
+  // итоги дня в группу в заданное время (по Ташкенту)
+  const st = await getSettings(env);
+  if (st.dailyReport !== false) {
+    const [hh, mm] = String(st.dailyTime || '23:30').split(':').map(Number);
+    const tl = new Date(t + 5 * H), mins = tl.getUTCHours() * 60 + tl.getUTCMinutes(), today = tashDate(t);
+    const last = await getKV(env, 'daily_sent');
+    if (mins >= hh * 60 + mm && last !== today && await getKV(env, 'group')) { await setKV(env, 'daily_sent', today); await dailyReport(env, today); }
+  }
   const { results } = await env.DB.prepare('SELECT id, data, deadline, n24, nover FROM videos WHERE done=0 AND deleted=0').all();
   for (const r of results) {
     const v = JSON.parse(r.data), left = r.deadline - t;

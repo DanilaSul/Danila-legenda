@@ -219,6 +219,9 @@ const DEFAULT_SETTINGS = {
   expenseFields:['Расходы'],
   videoMaker:'Амир',
   videoDays:3,
+  notifyBookings:true,
+  dailyReport:true,
+  dailyTime:'23:30',
   admin:''
 };
 const STATUSES={new:'Новая',ok:'Подтверждена',done:'Прошла',cancel:'Отмена'};
@@ -557,7 +560,8 @@ function viewReport(d){
   h+=`<div class="sum"><span>Сверка с бронями</span><b class="${diff===0?'in':'out'}">${diff===0?'сходится':(diff>0?'+':'−')+money(Math.abs(diff))}</b></div>
     <div class="sum"><span>Остаток в кассе</span><span class="big">${money(pin-pout)}</span></div>
     ${rep.note?`<div class="muted" style="margin-top:6px">${esc(rep.note)}</div>`:''}</div>
-  <button class="btn" data-act="share">${ic('send','s')} Отправить в чат</button>
+  <button class="btn" data-act="sendgroup">${ic('users','s')} Отправить в группу</button>
+  <button class="btn ghost" data-act="share">${ic('send','s')} Отправить в другой чат</button>
   ${can.cashEdit?`<button class="btn ghost" data-act="editrep">${ic('edit','s')} Изменить</button>
   <button class="btn danger" data-act="delrep">${ic('trash','s')} Удалить отчёт</button>`:''}`;
   return h;
@@ -607,8 +611,9 @@ function viewSettings(){
   const st=S.settings;
   const strList=(key,ph)=>st[key].map((v,i)=>`<div class="list-item"><input value="${esc(v)}" placeholder="${ph}" data-set="${key}.${i}"><button class="del" data-del="${key}.${i}">${ic('trash','s')}</button></div>`).join('')+
     `<button class="btn soft" style="margin-top:0" data-add="${key}">${ic('plus','s')} Добавить</button>`;
-  if(S.me&&S.me.role==='owner') setTimeout(loadUsers);
+  if(S.me&&S.me.role==='owner') setTimeout(()=>{loadUsers();loadGroup();});
   return `${S.me&&S.me.role==='owner'?`<h2>Сотрудники</h2><div class="card" id="usersBox"><div class="muted">Загрузка…</div></div>`:''}
+${S.me&&S.me.role==='owner'?`<h2>Группа Telegram</h2><div class="card" id="groupBox"><div class="muted">Загрузка…</div></div>`:''}
   <h2>Квесты</h2><div class="card">
     ${st.quests.map((q,i)=>`<div class="qset">
       <div class="row" style="margin-top:8px"><span class="dot" style="background:${q.color};width:14px;height:14px"></span><input value="${esc(q.name)}" data-set="quests.${i}.name" style="font-weight:600"><button class="del" data-del="quests.${i}">${ic('trash','s')}</button></div>
@@ -653,6 +658,20 @@ async function loadUsers(){
         <div class="muted">${me?'это вы · ':''}${pend?'<span style="color:var(--warn)">ждёт доступа — выбери роль</span>':ROLES[u.role]+(u.cash_edit&&!me?' · касса':'')}</div></div>
         ${me?'':`<button class="del" data-udel="${u.tg_id}">${ic('trash','s')}</button>`}</div>${ctl}
     </div>`;}).join('');
+}
+async function loadGroup(){
+  const r=await api('GET','group'); const box=$('groupBox'); if(!box||!r.ok) return;
+  const g=r.data.group, st=S.settings;
+  const tgl=(k,label)=>`<div class="row" style="margin-top:10px"><span class="grow">${label}</span><div class="seg" style="width:130px"><button data-tgl="${k}:1" class="${st[k]!==false?'on':''}">Вкл</button><button data-tgl="${k}:0" class="${st[k]===false?'on':''}">Выкл</button></div></div>`;
+  box.innerHTML = g ? `<div class="row">${ic('check')}<div class="grow"><b>${esc(g.title||'Группа')}</b><div class="muted">подключена</div></div></div>
+      ${tgl('notifyBookings','Новые брони, отмены, переносы')}
+      ${tgl('dailyReport','Итоги дня автоматически')}
+      <div class="row" style="margin-top:10px"><span class="grow">Время итогов (Ташкент)</span><input type="time" style="width:130px" value="${esc(st.dailyTime||'23:30')}" data-set="dailyTime"></div>
+      <div class="muted" style="margin-top:4px">После изменения нажми «Сохранить настройки» внизу</div>
+      <div class="two"><button class="btn soft" data-act="gtest">Тест</button><button class="btn soft" data-act="gdaily">Итоги сейчас</button></div>
+      <button class="btn danger" data-act="goff">Отключить группу</button>`
+    : `<div class="muted">Как подключить:<br>1. Добавь бота <b>@QuestHouseBookingBot</b> в вашу группу.<br>2. Отправь в группе команду <b>/connect</b> (только с твоего аккаунта).<br>3. Вернись сюда — группа появится.</div>
+      <button class="btn soft" data-act="grefresh">Проверить подключение</button>`;
 }
 function setPath(path,val){ const p=path.split('.'); let o=S.settings; for(let i=0;i<p.length-1;i++) o=o[p[i]]; o[p[p.length-1]]=val; }
 function saveSettings(){
@@ -706,6 +725,7 @@ document.addEventListener('click',async e=>{
   if(d.vfrom){ const b=dayList(today()).find(x=>x.id===d.vfrom); Object.assign(vEditing,{team:b.name,quest:b.quest,time:b.time,bookingId:b.id,gameDate:today()});
     $('v_team').value=b.name; $('v_quest').querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.vq===b.quest)); return segOn(t); }
   if(d.urole){ const [id,role]=d.urole.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{role,status:'approved'}); hapticOk(); toast('Доступ открыт'); return loadUsers(); }
+  if(d.tgl){ const [k,v]=d.tgl.split(':'); S.settings[k]=v==='1'; segOn(t); return; }
   if(d.ucash){ const [id,v]=d.ucash.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{cash_edit:+v}); hapticOk(); return loadUsers(); }
   if(d.udel){ if(await confirmBox('Убрать сотрудника?')){ await api('DELETE','users/'+d.udel); loadUsers(); } return; }
   // настройки
@@ -725,6 +745,11 @@ document.addEventListener('click',async e=>{
     case 'sharemonth': { const ds=Object.keys(S.reports).filter(x=>x.startsWith(S.month)); return share(reportText(ds,monthName(S.month))); }
     case 'editrep': S.cashView='create'; renderDays(); render(); return window.scrollTo(0,0);
     case 'delrep': if(await confirmBox('Удалить отчёт?')){ delete S.reports[S.date]; api('DELETE','report/'+S.date); S.cashView='list'; render(); } return;
+    case 'gtest': { const r=await api('POST','group/test'); return toast(r.ok&&r.data.ok?'Отправлено в группу':'Не получилось', r.data.ok?'check':'x'); }
+    case 'gdaily': { const r=await api('POST','group/daily',{date:today()}); return toast(r.ok&&r.data.ok?'Итоги отправлены':'Не получилось', r.data.ok?'check':'x'); }
+    case 'goff': if(await confirmBox('Отключить группу?')){ await api('DELETE','group'); loadGroup(); } return;
+    case 'grefresh': return loadGroup();
+    case 'sendgroup': { t.style.opacity=.5; const r=await api('POST','group/send',{text:reportText([S.date],human(S.date),S.reports[S.date])}); t.style.opacity=1; return r.ok?(hapticOk(),toast('Отправлено в группу')):toast(r.data.error||'Не получилось','x'); }
     case 'vsave': return saveVideoForm();
     case 'vdelete': if(await confirmBox('Удалить видео?')){ delete S.videos[vEditing.id]; api('DELETE','video/'+vEditing.id); closeSheet(); render(); } return;
     case 'toggledone': S.showDone=!S.showDone; return render();
