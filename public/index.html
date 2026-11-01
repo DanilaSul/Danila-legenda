@@ -196,6 +196,8 @@ async function api(method,path,body){
 const retryQ=[];
 setInterval(async()=>{ if(!retryQ.length) return; const q=retryQ.splice(0); for(const c of q) await api(...c); },10000);
 function setSync(st){ const el=$('sync'); if(!el) return; el.innerHTML=st==='err'?`<span style="color:var(--danger)">${ic('cloud','s')} нет связи</span>`:ic('cloud','s')+' синхр.'; }
+const can={cashEdit:false,videoDone:false,settings:false};
+function setPerms(u){ const own=u.role==='owner'; can.cashEdit=own||!!u.cash_edit; can.videoDone=own||u.role==='video'; can.settings=own; }
 const putBooking=b=>{ b.date=b.date||S.date; return api('PUT','booking',b); };
 
 /* ================= Настройки по умолчанию ================= */
@@ -423,12 +425,12 @@ function viewVideos(){
         <div style="text-align:right"><div class="cd">${s.txt}</div><div class="muted">${s.over?'':'осталось'}</div></div></div>
       ${v.comment?`<div class="muted" style="margin-top:6px">${esc(v.comment)}</div>`:''}
       <div class="prog"><i style="width:${Math.max(4,s.f*100)}%"></i></div>
-      <div class="row"><button class="btn done grow" data-vdone="${v.id}">${ic('check','s')} Видео сдано</button><button class="del" style="margin-top:10px" data-vedit="${v.id}">${ic('edit','s')}</button></div>
+      <div class="row">${can.videoDone?`<button class="btn done grow" data-vdone="${v.id}">${ic('check','s')} Видео сдано</button>`:`<div class="grow muted" style="margin-top:10px">${ic('clock','s')} в работе у ${esc(v.maker||S.settings.videoMaker)}</div>`}<button class="del" style="margin-top:10px" data-vedit="${v.id}">${ic('edit','s')}</button></div>
     </div>`;
   }
   if(done.length){
     h+=`<button class="btn ghost" data-act="toggledone">${S.showDone?'Скрыть':'Показать'} сданные (${done.length})</button>`;
-    if(S.showDone) for(const v of done.slice(0,30)) h+=`<div class="card row" style="opacity:.7">${ic('check','s')}<div class="grow"><b>${esc(v.team)}</b><div class="muted">${esc(v.quest)} · сдано ${new Date(v.doneAt).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</div></div><button class="del" data-vundo="${v.id}" title="Вернуть">${ic('left','s')}</button></div>`;
+    if(S.showDone) for(const v of done.slice(0,30)) h+=`<div class="card row" style="opacity:.7">${ic('check','s')}<div class="grow"><b>${esc(v.team)}</b><div class="muted">${esc(v.quest)} · сдано ${new Date(v.doneAt).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</div></div>${can.videoDone?`<button class="del" data-vundo="${v.id}" title="Вернуть">${ic('left','s')}</button>`:''}</div>`;
   }
   return h;
 }
@@ -511,13 +513,13 @@ function splitBlock(rows,tot,title){
 function viewCash(){
   let h=`<div class="seg" style="margin-bottom:12px">
     <button data-cv="list" class="${S.cashView!=='create'?'on':''}">${ic('file','s')} Отчёты</button>
-    <button data-cv="create" class="${S.cashView==='create'?'on':''}">${ic('plus','s')} Создать отчёт</button></div>`;
-  if(S.cashView==='create') return h+viewCreateReport();
+    ${can.cashEdit?`<button data-cv="create" class="${S.cashView==='create'?'on':''}">${ic('plus','s')} Создать отчёт</button>`:''}</div>`;
+  if(S.cashView==='create'&&can.cashEdit) return h+viewCreateReport();
   if(S.cashView==='view') return h+viewReport(S.date);
   // Список готовых отчётов за месяц
   const ym=S.month, dates=Object.keys(S.reports).filter(d=>d.startsWith(ym)).sort().reverse();
   h+=`<div class="mnav"><button data-mn="-1">${ic('left')}</button><b>${monthName(ym)}</b><button data-mn="1">${ic('right')}</button></div>`;
-  if(!dates.length) h+=`<div class="empty">${ic('file')}<div style="margin-top:6px">Отчётов за этот месяц нет</div></div><button class="btn" data-cv="create">${ic('plus','s')} Создать отчёт</button>`;
+  if(!dates.length) h+=`<div class="empty">${ic('file')}<div style="margin-top:6px">Отчётов за этот месяц нет</div></div>${can.cashEdit?`<button class="btn" data-cv="create">${ic('plus','s')} Создать отчёт</button>`:''}`;
   else {
     for(const d of dates){
       const {tot}=calcSplit([d]), {pin,pout}=cashTotals(S.reports[d]); const dt=parseDate(d);
@@ -556,8 +558,8 @@ function viewReport(d){
     <div class="sum"><span>Остаток в кассе</span><span class="big">${money(pin-pout)}</span></div>
     ${rep.note?`<div class="muted" style="margin-top:6px">${esc(rep.note)}</div>`:''}</div>
   <button class="btn" data-act="share">${ic('send','s')} Отправить в чат</button>
-  <button class="btn ghost" data-act="editrep">${ic('edit','s')} Изменить</button>
-  <button class="btn danger" data-act="delrep">${ic('trash','s')} Удалить отчёт</button>`;
+  ${can.cashEdit?`<button class="btn ghost" data-act="editrep">${ic('edit','s')} Изменить</button>
+  <button class="btn danger" data-act="delrep">${ic('trash','s')} Удалить отчёт</button>`:''}`;
   return h;
 }
 function readCash(){
@@ -636,14 +638,20 @@ const ROLES={owner:'Владелец',admin:'Админ',video:'Монтаж'};
 async function loadUsers(){
   const r=await api('GET','users'); const box=$('usersBox'); if(!box||!r.ok) return;
   const us=r.data.users;
-  box.innerHTML=`<div class="muted" style="margin-bottom:6px">Сотрудник открывает бота → «Открыть» → появляется здесь. <b>Админ</b> — всё, <b>Монтаж</b> — только видео и напоминания.</div>`+
+  box.innerHTML=`<div class="muted" style="margin-bottom:6px">Сотрудник открывает бота → «Открыть» → появляется здесь.<br>
+    <b>Админ</b> — брони, видит кассу и видео. <b>Монтаж</b> — то же + кнопка «Видео сдано». Касса-отчёт — только у тех, кому включишь.</div>`+
   us.map(u=>{
     const me=u.tg_id===S.me.tg_id, pend=u.status!=='approved';
+    let ctl='';
+    if(!me && pend) ctl=`<div class="two" style="margin-top:4px">
+        <button class="btn" style="margin-top:6px" data-urole="${u.tg_id}:admin">${ic('check','s')} Админ</button>
+        <button class="btn" style="margin-top:6px;background:var(--ok)" data-urole="${u.tg_id}:video">${ic('video','s')} Монтаж</button></div>`;
+    else if(!me) ctl=`<div class="seg" style="margin-top:8px">${['admin','video'].map(r=>`<button data-urole="${u.tg_id}:${r}" class="${u.role===r?'on':''}">${ROLES[r]}</button>`).join('')}</div>
+      <button class="btn ${u.cash_edit?'':'soft'}" style="margin-top:8px;padding:10px" data-ucash="${u.tg_id}:${u.cash_edit?0:1}">${ic(u.cash_edit?'check':'wallet','s')} ${u.cash_edit?'Может создавать касс-отчёт':'Разрешить касс-отчёт'}</button>`;
     return `<div style="padding:10px 0;border-top:1px solid var(--line)">
       <div class="row"><div class="grow"><b>${esc(u.name||'Без имени')}</b>${u.username?` <span class="muted">@${esc(u.username)}</span>`:''}
-        <div class="muted">${me?'это вы · ':''}${pend?'<span style="color:var(--warn)">ждёт доступа</span>':ROLES[u.role]}</div></div>
-        ${me?'':`<button class="del" data-udel="${u.tg_id}">${ic('trash','s')}</button>`}</div>
-      ${me?'':`<div class="seg" style="margin-top:8px">${['admin','video'].map(r=>`<button data-urole="${u.tg_id}:${r}" class="${!pend&&u.role===r?'on':''}">${pend?'Дать: ':''}${ROLES[r]}</button>`).join('')}</div>`}
+        <div class="muted">${me?'это вы · ':''}${pend?'<span style="color:var(--warn)">ждёт доступа — выбери роль</span>':ROLES[u.role]+(u.cash_edit&&!me?' · касса':'')}</div></div>
+        ${me?'':`<button class="del" data-udel="${u.tg_id}">${ic('trash','s')}</button>`}</div>${ctl}
     </div>`;}).join('');
 }
 function setPath(path,val){ const p=path.split('.'); let o=S.settings; for(let i=0;i<p.length-1;i++) o=o[p[i]]; o[p[p.length-1]]=val; }
@@ -697,7 +705,8 @@ document.addEventListener('click',async e=>{
   if(d.vq!==undefined){ vEditing.quest=d.vq; return segOn(t); }
   if(d.vfrom){ const b=dayList(today()).find(x=>x.id===d.vfrom); Object.assign(vEditing,{team:b.name,quest:b.quest,time:b.time,bookingId:b.id,gameDate:today()});
     $('v_team').value=b.name; $('v_quest').querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.vq===b.quest)); return segOn(t); }
-  if(d.urole){ const [id,role]=d.urole.split(':'); await api('PUT','users/'+id,{role,status:'approved'}); hapticOk(); toast('Доступ открыт'); return loadUsers(); }
+  if(d.urole){ const [id,role]=d.urole.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{role,status:'approved'}); hapticOk(); toast('Доступ открыт'); return loadUsers(); }
+  if(d.ucash){ const [id,v]=d.ucash.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{cash_edit:+v}); hapticOk(); return loadUsers(); }
   if(d.udel){ if(await confirmBox('Убрать сотрудника?')){ await api('DELETE','users/'+d.udel); loadUsers(); } return; }
   // настройки
   if(d.del){ const p=d.del.split('.'); S.settings[p[0]].splice(+p[1],1); return render(); }
@@ -740,6 +749,7 @@ function merge(d){
   }
   for(const r of d.reports||[]){ changed=true; if(r._deleted) delete S.reports[r.date]; else { const {date,_deleted,...rest}=r; S.reports[date]=rest; } }
   for(const v of d.videos||[]){ changed=true; if(v._deleted) delete S.videos[v.id]; else { delete v._deleted; S.videos[v.id]=v; } }
+  if(d.me && S.me && (d.me.role!==S.me.role || !!d.me.cash_edit!==!!S.me.cash_edit)){ S.me=d.me; applyRole(); if(!can.settings&&S.tab==='settings') S.tab='bookings'; changed=true; }
   if(d.t) lastSync=d.t;
   return changed;
 }
@@ -753,10 +763,10 @@ async function sync(){
 }
 function gate(html){ $('days').style.display='none'; $('fab').style.display='none'; document.querySelector('nav').style.display='none'; $('title').textContent='QuestHouse'; $('view').innerHTML=`<div class="view"><div class="card" style="text-align:center;padding:28px 18px">${html}</div></div>`; }
 function applyRole(){
-  const role=S.me.role;
+  setPerms(S.me);
   document.querySelector('nav').style.display='flex';
-  document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(role==='video'&&b.dataset.tab!=='video')?'none':''; });
-  if(role==='video'){ S.tab='video'; document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab==='video')); }
+  document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(b.dataset.tab==='settings'&&!can.settings)?'none':''; });
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===S.tab));
 }
 (async function init(){
   if(!INIT){ return gate(`${ic('cal')}<h3>Откройте через Telegram</h3><div class="muted">Приложение работает внутри бота @QuestHouseBookingBot</div>`); }

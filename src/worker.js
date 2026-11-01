@@ -58,9 +58,12 @@ async function getUser(env, tgUser) {
   }
   return u;
 }
-const canAll = u => u.status === 'approved' && (u.role === 'owner' || u.role === 'admin');
-const canVideo = u => u.status === 'approved';
-const isOwner = u => u.status === 'approved' && u.role === 'owner';
+// Права: все одобренные — брони и просмотр всего; касс-отчёт — владелец или с флагом cash_edit;
+// «Видео сдано» — владелец или монтаж; настройки и сотрудники — только владелец.
+const approved = u => u.status === 'approved';
+const isOwner = u => approved(u) && u.role === 'owner';
+const canCash = u => isOwner(u) || (approved(u) && !!u.cash_edit);
+const canVideoDone = u => isOwner(u) || (approved(u) && u.role === 'video');
 
 /* ---------- API ---------- */
 async function api(req, env, path) {
@@ -83,23 +86,16 @@ async function api(req, env, path) {
     if (s && s.updated > since) out.settings = JSON.parse(s.data);
     out.videos = (await db.prepare('SELECT data, deleted FROM videos WHERE updated>?').bind(since).all()).results
       .map(r => ({ ...JSON.parse(r.data), _deleted: !!r.deleted }));
-    if (canAll(u)) {
-      out.bookings = (await db.prepare('SELECT data, deleted FROM bookings WHERE updated>?').bind(since).all()).results
-        .map(r => ({ ...JSON.parse(r.data), _deleted: !!r.deleted }));
-      out.reports = (await db.prepare('SELECT date, data, deleted FROM reports WHERE updated>?').bind(since).all()).results
-        .map(r => ({ date: r.date, ...JSON.parse(r.data), _deleted: !!r.deleted }));
-    } else {
-      // монтажёру — только сегодняшние брони (для выбора команды при добавлении видео)
-      const today = new Date(t + 5 * H).toISOString().slice(0, 10);
-      out.bookings = (await db.prepare('SELECT data, deleted FROM bookings WHERE date=? AND updated>?').bind(today, since).all()).results
-        .map(r => ({ ...JSON.parse(r.data), _deleted: !!r.deleted }));
-      out.reports = [];
-    }
+    out.bookings = (await db.prepare('SELECT data, deleted FROM bookings WHERE updated>?').bind(since).all()).results
+      .map(r => ({ ...JSON.parse(r.data), _deleted: !!r.deleted }));
+    out.reports = (await db.prepare('SELECT date, data, deleted FROM reports WHERE updated>?').bind(since).all()).results
+      .map(r => ({ date: r.date, ...JSON.parse(r.data), _deleted: !!r.deleted }));
+    out.me = u;
     return json(out);
   }
 
   if (parts[0] === 'booking') {
-    if (!canAll(u)) return json({ error: 'forbidden' }, 403);
+    if (!approved(u)) return json({ error: 'forbidden' }, 403);
     if (m === 'PUT') {
       const b = body; if (!b.id || !b.date) return json({ error: 'bad' }, 400);
       await db.prepare('INSERT INTO bookings (id,date,data,updated,deleted,by_user) VALUES (?,?,?,?,0,?) ON CONFLICT(id) DO UPDATE SET date=excluded.date,data=excluded.data,updated=excluded.updated,deleted=0,by_user=excluded.by_user')
@@ -110,7 +106,7 @@ async function api(req, env, path) {
   }
 
   if (parts[0] === 'report') {
-    if (!canAll(u)) return json({ error: 'forbidden' }, 403);
+    if (!canCash(u)) return json({ error: 'forbidden' }, 403);
     const date = parts[1];
     if (m === 'PUT') {
       await db.prepare('INSERT INTO reports (date,data,updated,deleted,by_user) VALUES (?,?,?,0,?) ON CONFLICT(date) DO UPDATE SET data=excluded.data,updated=excluded.updated,deleted=0,by_user=excluded.by_user')
@@ -121,10 +117,11 @@ async function api(req, env, path) {
   }
 
   if (parts[0] === 'video') {
-    if (!canVideo(u)) return json({ error: 'forbidden' }, 403);
+    if (!approved(u)) return json({ error: 'forbidden' }, 403);
     if (m === 'PUT') {
       const v = body; if (!v.id) return json({ error: 'bad' }, 400);
       const old = await db.prepare('SELECT done, deadline FROM videos WHERE id=?').bind(v.id).first();
+      if (!!(old && old.done) !== !!v.done && !canVideoDone(u)) return json({ error: 'forbidden' }, 403);
       const resetFlags = old && old.deadline !== v.deadline;
       await db.prepare(`INSERT INTO videos (id,data,deadline,done,updated,deleted,by_user) VALUES (?,?,?,?,?,0,?)
         ON CONFLICT(id) DO UPDATE SET data=excluded.data,deadline=excluded.deadline,done=excluded.done,updated=excluded.updated,deleted=0${resetFlags ? ',n24=0,nover=0' : ''}`)
@@ -137,7 +134,7 @@ async function api(req, env, path) {
   }
 
   if (parts[0] === 'settings' && m === 'PUT') {
-    if (!canAll(u)) return json({ error: 'forbidden' }, 403);
+    if (!isOwner(u)) return json({ error: 'forbidden' }, 403);
     await db.prepare('INSERT INTO settings (k,data,updated) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET data=excluded.data, updated=excluded.updated')
       .bind('main', JSON.stringify(body), now()).run();
     return json({ ok: true });
@@ -148,10 +145,12 @@ async function api(req, env, path) {
     if (m === 'GET') return json({ users: (await db.prepare('SELECT * FROM users ORDER BY created').all()).results });
     if (m === 'PUT') {
       const id = Number(parts[1]); if (id === u.tg_id) return json({ error: 'self' }, 400);
-      const role = ['admin', 'video', 'owner'].includes(body.role) ? body.role : 'admin';
-      const status = ['approved', 'pending', 'blocked'].includes(body.status) ? body.status : 'pending';
-      const before = await db.prepare('SELECT status FROM users WHERE tg_id=?').bind(id).first();
-      await db.prepare('UPDATE users SET role=?, status=? WHERE tg_id=?').bind(role, status, id).run();
+      const before = await db.prepare('SELECT * FROM users WHERE tg_id=?').bind(id).first();
+      if (!before) return json({ error: 'not found' }, 404);
+      const role = ['admin', 'video'].includes(body.role) ? body.role : before.role;
+      const status = ['approved', 'pending', 'blocked'].includes(body.status) ? body.status : before.status;
+      const cash = body.cash_edit === undefined ? (before.cash_edit || 0) : (body.cash_edit ? 1 : 0);
+      await db.prepare('UPDATE users SET role=?, status=?, cash_edit=? WHERE tg_id=?').bind(role, status, cash, id).run();
       if (before && before.status !== 'approved' && status === 'approved')
         await tg(env, 'sendMessage', { chat_id: id, text: '✅ Доступ открыт! Нажмите «Открыть» внизу слева.', reply_markup: { inline_keyboard: [[{ text: 'Открыть приложение', web_app: { url: appUrl(req) } }]] } });
       return json({ ok: true });

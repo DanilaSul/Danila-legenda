@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT, username TEXT,
   role TEXT NOT NULL DEFAULT 'admin',      -- owner | admin | video
   status TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | blocked
-  created INTEGER, last_seen INTEGER
+  created INTEGER, last_seen INTEGER,
+  cash_edit INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, data TEXT, updated INTEGER);
 CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, date TEXT, data TEXT, updated INTEGER, deleted INTEGER DEFAULT 0, by_user INTEGER);
