@@ -296,6 +296,9 @@ async function dailyReport(env, date) {
 }
 
 /* ---------- Заявки из чатов с клиентами (Telegram Business) ---------- */
+// Заявки распознаём только с этой даты: старые сообщения и брони на прошедшие дни игнорируем
+const REQUESTS_FROM = '2026-11-02';
+const REQUESTS_FROM_MS = Date.parse(REQUESTS_FROM + 'T00:00:00+05:00');
 const FIELD_RU = { quest: 'квест', date: 'дата', time: 'время', name: 'имя', phone: 'телефон' };
 async function slotTaken(env, f) {
   if (!f.date || !f.time || !f.quest) return null;
@@ -348,6 +351,7 @@ async function onBusinessMessage(env, msg, origin) {
   const conn = await getKV(env, 'business');
   if (conn && msg.from && msg.from.id === conn.user_id) return; // наши собственные ответы клиенту не разбираем
   const text = (msg.text || msg.caption || '').trim(); if (!text) return;
+  if ((msg.date || 0) * 1000 < REQUESTS_FROM_MS) return; // сообщение отправлено до начала работы
   const st = await getSettings(env), t = now();
   const opt = { today: tashDate(t), quests: st.quests || [] };
   const extra = { username: msg.from && msg.from.username, client_id: msg.from && msg.from.id, client_name: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') };
@@ -365,6 +369,10 @@ async function onBusinessMessage(env, msg, origin) {
   const buf = await env.DB.prepare('SELECT text, updated FROM chatbuf WHERE chat_id=?').bind(msg.chat.id).first();
   const combined = ((buf && buf.updated > t - 30 * 60e3 ? buf.text + '\n' : '') + text).slice(-2000);
   const p = parseBooking(combined, opt);
+  const minDate = tashDate(t) > REQUESTS_FROM ? tashDate(t) : REQUESTS_FROM;
+  if (p.isBooking && p.fields.date && p.fields.date < minDate) { // бронь на прошедший день — это не новая заявка
+    await env.DB.prepare('DELETE FROM chatbuf WHERE chat_id=?').bind(msg.chat.id).run(); return;
+  }
   if (!p.isBooking) {
     await env.DB.prepare('INSERT INTO chatbuf (chat_id,text,updated) VALUES (?,?,?) ON CONFLICT(chat_id) DO UPDATE SET text=excluded.text, updated=excluded.updated').bind(msg.chat.id, combined, t).run();
     return;

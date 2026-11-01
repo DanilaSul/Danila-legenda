@@ -45,7 +45,7 @@ export function parseBooking(text, { today, quests = [] } = {}) {
     if (day < 1 || day > 31 || month < 1 || month > 12) return false;
     let y = year || base.getUTCFullYear();
     let d = new Date(Date.UTC(y, month - 1, day));
-    if (!year && d < new Date(base.getTime() - 3 * 86400e3)) d = new Date(Date.UTC(y + 1, month - 1, day)); // уже прошло — значит следующий год
+    if (!year && d < new Date(base.getTime() - 60 * 86400e3)) d = new Date(Date.UTC(y + 1, month - 1, day)); // давно прошло (напр. «5 января» в декабре) — следующий год
     f.date = ymd(d); return true;
   };
   let m;
