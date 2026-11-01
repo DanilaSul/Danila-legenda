@@ -167,6 +167,7 @@ nav button{position:relative}
   <button data-tab="bookings" class="on"><svg class="i"><use href="#i-cal"/></svg>Брони</button>
   <button data-tab="cash"><svg class="i"><use href="#i-wallet"/></svg>Касса</button>
   <button data-tab="video"><svg class="i"><use href="#i-video"/></svg>Видео<span class="nb" id="vbadge" style="display:none"></span></button>
+  <button data-tab="payroll" style="display:none"><svg class="i"><use href="#i-list"/></svg>Ведомость</button>
   <button data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg>Настройки</button>
 </nav>
 <div class="sheet-bg" id="sheetBg"></div>
@@ -197,7 +198,7 @@ const retryQ=[];
 setInterval(async()=>{ if(!retryQ.length) return; const q=retryQ.splice(0); for(const c of q) await api(...c); },10000);
 function setSync(st){ const el=$('sync'); if(!el) return; el.innerHTML=st==='err'?`<span style="color:var(--danger)">${ic('cloud','s')} нет связи</span>`:ic('cloud','s')+' синхр.'; }
 const can={cashEdit:false,videoDone:false,settings:false};
-function setPerms(u){ const own=u.role==='owner'; can.cashEdit=own||!!u.cash_edit; can.videoDone=own||u.role==='video'; can.settings=own; }
+function setPerms(u){ const own=u.role==='owner'; can.cashEdit=true; can.videoDone=own||u.role==='video'||u.role==='manager'; can.settings=own; can.payroll=own; }
 const putBooking=b=>{ b.date=b.date||S.date; return api('PUT','booking',b); };
 
 /* ================= Настройки по умолчанию ================= */
@@ -264,7 +265,7 @@ function renderDays(){
 function setDate(d){ if(!d) return; S.date=d; haptic(); $('days').querySelectorAll('.day').forEach(b=>b.classList.toggle('on',b.dataset.d===d)); if(!$('days').querySelector('.on')) renderDays(); render(); }
 
 /* ================= Навигация ================= */
-const TITLES={bookings:'Брони',cash:'Касса',video:'Видео',settings:'Настройки'};
+const TITLES={bookings:'Брони',cash:'Касса',video:'Видео',settings:'Настройки',payroll:'Ведомость'};
 function go(tab){
   if(S.tab===tab) return; S.tab=tab; haptic();
   if(tab==='cash') S.cashView='list';
@@ -273,11 +274,11 @@ function go(tab){
 }
 function render(){
   $('title').textContent=TITLES[S.tab];
-  const showDays = S.tab==='bookings' || (S.tab==='cash' && S.cashView==='create');
+  const showDays = S.tab==='bookings' || S.tab==='payroll' || (S.tab==='cash' && S.cashView==='create');
   $('days').style.display=showDays?'flex':'none';
   $('fab').style.display=(S.tab==='bookings'||S.tab==='video')?'flex':'none';
   const v=$('view');
-  const html = S.tab==='bookings'?viewBookings():S.tab==='cash'?viewCash():S.tab==='video'?viewVideos():viewSettings();
+  const html = S.tab==='bookings'?viewBookings():S.tab==='cash'?viewCash():S.tab==='video'?viewVideos():S.tab==='payroll'?viewPayroll():viewSettings();
   v.innerHTML=`<div class="view">${html}</div>`;
   if(S.tab==='cash'&&S.cashView==='create') calcCash();
   updateVideoBadge();
@@ -620,6 +621,55 @@ function share(text){
   else { navigator.clipboard?.writeText(text); toast('Скопировано'); }
 }
 
+/* ================= Ведомость (только владелец) ================= */
+let PAY=null, payLoading=null, payEdit=false;
+async function loadPay(force){
+  const month=S.date.slice(0,7);
+  if(!force && PAY && PAY.month===month) return;
+  if(payLoading===month && !force) return; payLoading=month;
+  const r=await api('GET','payroll?month='+month); payLoading=null;
+  if(r.ok){ PAY={month,...r.data}; if(S.tab==='payroll' && !busy()) render(); }
+}
+function autoPay(e,date){ if(!e.link) return 0; const m=calcSplit([date]).tot.mgmt.find(x=>x.name===e.link); return m?Math.round(m.sum):0; }
+function payFor(e,date){ const m=PAY.entries.find(x=>x.date===date&&x.emp===e.id); return m?m.amount:autoPay(e,date); }
+function viewPayroll(){
+  if(!PAY || PAY.month!==S.date.slice(0,7)){ loadPay(); return `<div class="empty">Загрузка…</div>`; }
+  const st=PAY.staff, d=S.date, ym=d.slice(0,7);
+  const days=[...new Set([...Object.keys(S.bookings).filter(x=>x.startsWith(ym)),...PAY.entries.map(x=>x.date)])].sort();
+  let h=`<div class="muted" style="margin:0 4px 8px">${ic('list','s')} Видишь только ты · ${human(d)}${PAY.sent[d]?' · <span style="color:var(--ok)">отправлено ✓</span>':''}</div><div class="card">`;
+  for(const e of st.list){
+    const m=PAY.entries.find(x=>x.date===d&&x.emp===e.id), auto=autoPay(e,d);
+    h+=`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+      <div class="row"><div class="grow"><b>${esc(e.name)}</b> ${e.username?`<span class="muted">@${esc(e.username.replace(/^@/,''))}</span>`:'<span class="muted">нет юзернейма</span>'}
+        <div class="muted" style="font-size:12px">${PAY.reach[e.id]?'<span style="color:var(--ok)">бот может написать</span>':'<span style="color:var(--warn)">пусть нажмёт /start в боте</span>'}${e.link?` · авто: ${esc(e.link)} = ${money(auto)}`:''}</div></div></div>
+      <input type="number" inputmode="numeric" id="pay_${e.id}" value="${m?m.amount:''}" placeholder="${e.link?'авто '+auto.toLocaleString('ru-RU'):'сумма за день, сум'}" style="margin-top:6px">
+    </div>`;
+  }
+  h+=`</div>
+  <button class="btn" data-act="paysave">${ic('save','s')} Сохранить</button>
+  <button class="btn ghost" data-act="paysend">${ic('send','s')} Отправить сотрудникам сейчас</button>
+  <div class="muted" style="margin:6px 4px">Автоматически бот пишет каждому в ${esc(st.time||'23:30')}: «Поздравляю, за сегодня ты заработал(а)…» и сумму за месяц. Пустое поле с «авто» — возьмётся доля из распределения.</div>`;
+  // месяц
+  h+=`<h2>${monthName(ym)}</h2><div class="card">`;
+  let grand=0;
+  for(const e of st.list){ const tot=days.reduce((s,x)=>s+payFor(e,x),0); grand+=tot;
+    h+=`<div class="sum"><span>${esc(e.name)}</span><b>${money(tot)}</b></div>`; }
+  h+=`<div class="sum"><span>Всего выплат</span><span class="big">${money(grand)}</span></div></div>
+  <button class="btn soft" data-act="payedit">${ic('users','s')} ${payEdit?'Скрыть':'Настроить'} сотрудников</button>`;
+  if(payEdit){
+    const mg=S.settings.mgmt.map(m=>m.name);
+    h+=`<div class="card" style="margin-top:8px">`+st.list.map((e,i)=>`<div class="qset" style="padding-top:8px">
+      <div class="row"><input value="${esc(e.name)}" data-pf="${i}.name" placeholder="Имя"><button class="del" data-pdel="${i}">${ic('trash','s')}</button></div>
+      <div class="two"><div><label>Телеграм-юзернейм</label><input value="${esc(e.username)}" data-pf="${i}.username" placeholder="@username"></div>
+      <div><label>Авто-сумма</label><select data-pf="${i}.link"><option value="">— вручную</option>${mg.map(n=>`<option ${e.link===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div></div></div>`).join('')+
+    `<button class="btn soft" style="margin-top:0" data-act="padd">${ic('plus','s')} Добавить сотрудника</button>
+     <div class="row" style="margin-top:12px"><span class="grow">Отправлять в (Ташкент)</span><input type="time" style="width:130px" value="${esc(st.time||'23:30')}" data-pf="time"></div>
+     <div class="row" style="margin-top:10px"><span class="grow">Отправлять автоматически</span><div class="seg" style="width:130px"><button data-pauto="1" class="${st.auto!==false?'on':''}">Вкл</button><button data-pauto="0" class="${st.auto===false?'on':''}">Выкл</button></div></div>
+     <button class="btn" data-act="paystaff">${ic('save','s')} Сохранить сотрудников</button></div>`;
+  }
+  return h;
+}
+
 /* ================= Настройки ================= */
 function viewSettings(){
   const st=S.settings;
@@ -655,23 +705,23 @@ ${S.me&&S.me.role==='owner'?`<h2>Группа Telegram</h2><div class="card" id=
   <button class="btn danger" data-act="resetsettings">Сбросить на стандартные</button>
   <div class="muted" style="text-align:center;margin:14px 0;display:flex;gap:6px;justify-content:center;align-items:center">${ic('cloud','s')} Общая база на сервере</div>`;
 }
-const ROLES={owner:'Владелец',admin:'Админ',video:'Монтаж'};
+const ROLES={owner:'Владелец',manager:'Руководство',admin:'Сотрудник',video:'Видеомонтажёр'};
 async function loadUsers(){
   const r=await api('GET','users'); const box=$('usersBox'); if(!box||!r.ok) return;
   const us=r.data.users;
   box.innerHTML=`<div class="muted" style="margin-bottom:6px">Сотрудник открывает бота → «Открыть» → появляется здесь.<br>
-    <b>Админ</b> — брони, видит кассу и видео. <b>Монтаж</b> — то же + кнопка «Видео сдано». Касса-отчёт — только у тех, кому включишь.</div>`+
+    <b>Руководство</b> и <b>Видеомонтажёр</b> — всё, кроме настроек. <b>Сотрудник</b> — то же, но без кнопки «Видео сдано». Напоминания о сроках видео получает видеомонтажёр.</div>`+
   us.map(u=>{
     const me=u.tg_id===S.me.tg_id, pend=u.status!=='approved';
     let ctl='';
-    if(!me && pend) ctl=`<div class="two" style="margin-top:4px">
-        <button class="btn" style="margin-top:6px" data-urole="${u.tg_id}:admin">${ic('check','s')} Админ</button>
-        <button class="btn" style="margin-top:6px;background:var(--ok)" data-urole="${u.tg_id}:video">${ic('video','s')} Монтаж</button></div>`;
-    else if(!me) ctl=`<div class="seg" style="margin-top:8px">${['admin','video'].map(r=>`<button data-urole="${u.tg_id}:${r}" class="${u.role===r?'on':''}">${ROLES[r]}</button>`).join('')}</div>
-      <button class="btn ${u.cash_edit?'':'soft'}" style="margin-top:8px;padding:10px" data-ucash="${u.tg_id}:${u.cash_edit?0:1}">${ic(u.cash_edit?'check':'wallet','s')} ${u.cash_edit?'Может создавать касс-отчёт':'Разрешить касс-отчёт'}</button>`;
+    if(!me && pend) ctl=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px">
+        <button class="btn" style="margin-top:0;padding:11px 4px;font-size:13px;background:#8e4ec6" data-urole="${u.tg_id}:manager">Руководство</button>
+        <button class="btn" style="margin-top:0;padding:11px 4px;font-size:13px" data-urole="${u.tg_id}:admin">Сотрудник</button>
+        <button class="btn" style="margin-top:0;padding:11px 4px;font-size:13px;background:var(--ok)" data-urole="${u.tg_id}:video">Видеомонтажёр</button></div>`;
+    else if(!me) ctl=`<div class="seg" style="margin-top:8px">${['manager','admin','video'].map(r=>`<button data-urole="${u.tg_id}:${r}" class="${u.role===r?'on':''}" style="font-size:12px">${ROLES[r]}</button>`).join('')}</div>`;
     return `<div style="padding:10px 0;border-top:1px solid var(--line)">
       <div class="row"><div class="grow"><b>${esc(u.name||'Без имени')}</b>${u.username?` <span class="muted">@${esc(u.username)}</span>`:''}
-        <div class="muted">${me?'это вы · ':''}${pend?'<span style="color:var(--warn)">ждёт доступа — выбери роль</span>':ROLES[u.role]+(u.cash_edit&&!me?' · касса':'')}</div></div>
+        <div class="muted">${me?'это вы · ':''}${pend?'<span style="color:var(--warn)">ждёт доступа — выбери роль</span>':ROLES[u.role]}</div></div>
         ${me?'':`<button class="del" data-udel="${u.tg_id}">${ic('trash','s')}</button>`}</div>${ctl}
     </div>`;}).join('');
 }
@@ -746,6 +796,8 @@ document.addEventListener('click',async e=>{
     $('v_team').value=b.name; $('v_quest').querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.vq===b.quest)); return segOn(t); }
   if(d.urole){ const [id,role]=d.urole.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{role,status:'approved'}); hapticOk(); toast('Доступ открыт'); return loadUsers(); }
   if(d.tgl){ const [k,v]=d.tgl.split(':'); S.settings[k]=v==='1'; segOn(t); return; }
+  if(d.pdel!==undefined){ PAY.staff.list.splice(+d.pdel,1); return render(); }
+  if(d.pauto!==undefined){ PAY.staff.auto=d.pauto==='1'; return segOn(t); }
   if(d.ucash){ const [id,v]=d.ucash.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{cash_edit:+v}); hapticOk(); return loadUsers(); }
   if(d.udel){ if(await confirmBox('Убрать сотрудника?')){ await api('DELETE','users/'+d.udel); loadUsers(); } return; }
   // настройки
@@ -771,6 +823,15 @@ document.addEventListener('click',async e=>{
     case 'grefresh': return loadGroup();
     case 'sendgroup': { t.style.opacity=.5; const r=await api('POST','group/send',{text:reportText([S.date],human(S.date),S.reports[S.date])}); t.style.opacity=1; return r.ok?(hapticOk(),toast('Отправлено в группу')):toast(r.data.error||'Не получилось','x'); }
     case 'rejectreq': if(await confirmBox('Отклонить заявку?')){ const id=editing.requestId; await api('POST','request/'+id+'/reject'); S.requests=(S.requests||[]).filter(x=>x.id!==id); closeSheet(); toast('Заявка отклонена'); render(); } return;
+    case 'paysave': { const body={}; PAY.staff.list.forEach(e=>{ const v=$('pay_'+e.id).value; body[e.id]=v===''?null:+v; });
+      const r=await api('PUT','payroll/'+S.date,body); if(r.ok){ hapticOk(); toast('Сохранено'); await loadPay(true); } return; }
+    case 'paysend': { if(!(await confirmBox('Отправить сотрудникам суммы за '+human(S.date)+'?'))) return;
+      const body={}; PAY.staff.list.forEach(e=>{ const v=$('pay_'+e.id).value; body[e.id]=v===''?null:+v; }); await api('PUT','payroll/'+S.date,body);
+      const r=await api('POST','payroll/'+S.date+'/send'); if(r.ok){ hapticOk(); toast(`Отправлено: ${r.data.sent}`+(r.data.skipped.length?` · не дошло: ${r.data.skipped.join(', ')}`:'')); await loadPay(true); } return; }
+    case 'payedit': payEdit=!payEdit; return render();
+    case 'padd': PAY.staff.list.push({id:uid(),name:'',username:'',link:''}); return render();
+    case 'paystaff': { PAY.staff.list=PAY.staff.list.filter(e=>e.name.trim()); PAY.staff.list.forEach(e=>e.username=e.username.trim().replace(/^@/,''));
+      const r=await api('PUT','payroll/staff',{list:PAY.staff.list,time:PAY.staff.time,auto:PAY.staff.auto}); if(r.ok){ hapticOk(); toast('Сохранено'); payEdit=false; await loadPay(true); render(); } return; }
     case 'vsave': return saveVideoForm();
     case 'vdelete': if(await confirmBox('Удалить видео?')){ delete S.videos[vEditing.id]; api('DELETE','video/'+vEditing.id); closeSheet(); render(); } return;
     case 'toggledone': S.showDone=!S.showDone; return render();
@@ -779,7 +840,8 @@ document.addEventListener('click',async e=>{
     case 'resetsettings': if(await confirmBox('Сбросить настройки на стандартные?')){ S.settings=clone(DEFAULT_SETTINGS); api('PUT','settings',S.settings); render(); } return;
   }
 });
-document.addEventListener('input',e=>{ const t=e.target; if(t.dataset.set!==undefined) setPath(t.dataset.set, t.dataset.num!==undefined?(+t.value||0):t.value); });
+document.addEventListener('input',e=>{ const t=e.target;
+  if(t.dataset.pf!==undefined && PAY){ const p=t.dataset.pf.split('.'); if(p.length===1) PAY.staff[p[0]]=t.value; else PAY.staff.list[+p[0]][p[1]]=t.value; } if(t.dataset.set!==undefined) setPath(t.dataset.set, t.dataset.num!==undefined?(+t.value||0):t.value); });
 $('dpick').addEventListener('change',e=>setDate(e.target.value));
 setInterval(()=>{ if(S.tab==='video' && !$('sheet').classList.contains('open')) render(); else updateVideoBadge(); },30000);
 
@@ -812,7 +874,7 @@ function gate(html){ $('days').style.display='none'; $('fab').style.display='non
 function applyRole(){
   setPerms(S.me);
   document.querySelector('nav').style.display='flex';
-  document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(b.dataset.tab==='settings'&&!can.settings)?'none':''; });
+  document.querySelectorAll('nav button').forEach(b=>{ b.style.display=((b.dataset.tab==='settings'&&!can.settings)||(b.dataset.tab==='payroll'&&!can.payroll))?'none':''; });
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===S.tab));
 }
 (async function init(){

@@ -15,3 +15,5 @@ CREATE INDEX IF NOT EXISTS videos_upd ON videos(updated);
 CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, chat_id INTEGER, text TEXT, fields TEXT, status TEXT DEFAULT 'pending', cards TEXT, booking_id TEXT, created INTEGER, updated INTEGER);
 CREATE INDEX IF NOT EXISTS requests_chat ON requests(chat_id, status);
 CREATE TABLE IF NOT EXISTS chatbuf (chat_id INTEGER PRIMARY KEY, text TEXT, updated INTEGER);
+CREATE TABLE IF NOT EXISTS pay (date TEXT, emp TEXT, amount INTEGER, PRIMARY KEY (date, emp));
+CREATE TABLE IF NOT EXISTS contacts (tg_id INTEGER PRIMARY KEY, username TEXT, name TEXT, updated INTEGER);

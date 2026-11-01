@@ -63,8 +63,9 @@ async function getUser(env, tgUser) {
 // «Видео сдано» — владелец или монтаж; настройки и сотрудники — только владелец.
 const approved = u => u.status === 'approved';
 const isOwner = u => approved(u) && u.role === 'owner';
-const canCash = u => isOwner(u) || (approved(u) && !!u.cash_edit);
-const canVideoDone = u => isOwner(u) || (approved(u) && u.role === 'video');
+// Роли: owner (владелец) · manager (руководство) · admin (сотрудник) · video (видеомонтажёр)
+const canCash = u => approved(u);
+const canVideoDone = u => isOwner(u) || (approved(u) && (u.role === 'video' || u.role === 'manager'));
 
 /* ---------- API ---------- */
 async function api(req, env, path) {
@@ -149,6 +150,28 @@ async function api(req, env, path) {
     if (m === 'DELETE') { await db.prepare('UPDATE videos SET deleted=1, updated=? WHERE id=?').bind(now(), parts[1]).run(); return json({ ok: true }); }
   }
 
+  if (parts[0] === 'payroll') { // ведомость — только владелец
+    if (!isOwner(u)) return json({ error: 'forbidden' }, 403);
+    if (m === 'GET') {
+      const month = new URL(req.url).searchParams.get('month') || tashDate().slice(0, 7);
+      const staff = await getStaff(env);
+      const entries = (await db.prepare('SELECT date, emp, amount FROM pay WHERE date LIKE ?').bind(month + '%').all()).results;
+      const reach = {};
+      for (const e of staff.list) reach[e.id] = !!(await staffChatId(env, e));
+      const sent = {}; for (const r of (await db.prepare("SELECT k FROM settings WHERE k LIKE 'pay_sent_%'").all()).results) sent[r.k.slice(9)] = true;
+      return json({ staff, entries, reach, sent });
+    }
+    if (m === 'PUT' && parts[1] === 'staff') { await setKV(env, 'staff', { ...(await getStaff(env)), ...body }); return json({ ok: true }); }
+    if (m === 'PUT' && parts[1]) { // {empId: amount|null}
+      for (const [emp, amount] of Object.entries(body || {})) {
+        if (amount === null || amount === '') await db.prepare('DELETE FROM pay WHERE date=? AND emp=?').bind(parts[1], emp).run();
+        else await db.prepare('INSERT INTO pay (date,emp,amount) VALUES (?,?,?) ON CONFLICT(date,emp) DO UPDATE SET amount=excluded.amount').bind(parts[1], emp, Math.round(+amount || 0)).run();
+      }
+      return json({ ok: true });
+    }
+    if (m === 'POST' && parts[2] === 'send') { const r = await sendPayroll(env, parts[1]); return json({ ok: true, ...r }); }
+  }
+
   if (parts[0] === 'request') {
     if (!isOwner(u)) return json({ error: 'forbidden' }, 403);
     const r = await db.prepare('SELECT * FROM requests WHERE id=?').bind(parts[1]).first();
@@ -188,7 +211,7 @@ async function api(req, env, path) {
       const id = Number(parts[1]); if (id === u.tg_id) return json({ error: 'self' }, 400);
       const before = await db.prepare('SELECT * FROM users WHERE tg_id=?').bind(id).first();
       if (!before) return json({ error: 'not found' }, 404);
-      const role = ['admin', 'video'].includes(body.role) ? body.role : before.role;
+      const role = ['admin', 'video', 'manager'].includes(body.role) ? body.role : before.role;
       const status = ['approved', 'pending', 'blocked'].includes(body.status) ? body.status : before.status;
       const cash = body.cash_edit === undefined ? (before.cash_edit || 0) : (body.cash_edit ? 1 : 0);
       await db.prepare('UPDATE users SET role=?, status=?, cash_edit=? WHERE tg_id=?').bind(role, status, cash, id).run();
@@ -420,6 +443,52 @@ async function onCallback(env, cq, origin) {
   return answer('Бронь добавлена и отправлена в группу');
 }
 
+/* ---------- Ведомость сотрудников ---------- */
+const DEFAULT_STAFF = { time: '23:30', auto: true, list: [
+  { id: 'nastya', name: 'Настя', username: '', link: '' },
+  { id: 'amina', name: 'Амина', username: '', link: '' },
+  { id: 'amir', name: 'Амир', username: '', link: 'Амир' },
+  { id: 'danya', name: 'Даня', username: '', link: 'Данил' } ] };
+async function getStaff(env) { const s = await getKV(env, 'staff'); return { ...DEFAULT_STAFF, ...(s || {}) }; }
+async function staffChatId(env, e) {
+  const un = String(e.username || '').replace(/^@/, '').trim().toLowerCase(); if (!un) return null;
+  const a = await env.DB.prepare('SELECT tg_id FROM users WHERE lower(username)=?').bind(un).first(); if (a) return a.tg_id;
+  const b = await env.DB.prepare('SELECT tg_id FROM contacts WHERE lower(username)=?').bind(un).first(); return b ? b.tg_id : null;
+}
+const MON_NOM = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+// Суммы по дням месяца: введённая вручную, иначе — автоматически из доли управления (link = имя в «Распределении»)
+async function monthPay(env, month, staff) {
+  const st = await getSettings(env);
+  const manual = (await env.DB.prepare('SELECT date, emp, amount FROM pay WHERE date LIKE ?').bind(month + '%').all()).results;
+  const bk = (await env.DB.prepare('SELECT date, data FROM bookings WHERE date LIKE ? AND deleted=0').bind(month + '%').all()).results;
+  const byDay = {};
+  for (const r of bk) (byDay[r.date] = byDay[r.date] || []).push(JSON.parse(r.data));
+  const out = {};
+  for (const d of Object.keys(byDay)) {
+    const mg = split(st, byDay[d]).tot.mg; out[d] = {};
+    for (const e of staff.list) if (e.link) { const x = mg.find(m => m.name === e.link); if (x && x.sum) out[d][e.id] = Math.round(x.sum); }
+  }
+  for (const r of manual) (out[r.date] = out[r.date] || {})[r.emp] = r.amount;
+  return out;
+}
+async function sendPayroll(env, date) {
+  const staff = await getStaff(env), month = date.slice(0, 7), mp = await monthPay(env, month, staff), day = mp[date] || {};
+  const [y, mo, d] = date.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate() === d;
+  let sent = 0; const skipped = [];
+  for (const e of staff.list) {
+    const amount = day[e.id]; if (!amount) continue;
+    const chat = await staffChatId(env, e); if (!chat) { skipped.push(e.name); continue; }
+    const total = Object.entries(mp).filter(([ds]) => ds <= date).reduce((s, [, v]) => s + (v[e.id] || 0), 0);
+    let t = `🎉 ${escH(e.name)}, поздравляю!\nЗа сегодня (${humanDate(date)}) ты заработал(а) <b>${money(amount)}</b>.\n\n📅 За ${MON_NOM[mo - 1]} всего: <b>${money(total)}</b>`;
+    if (lastDay) t += `\n\n🏁 Это итог месяца. Спасибо за работу!`;
+    const r = await tg(env, 'sendMessage', { chat_id: chat, text: t, parse_mode: 'HTML' });
+    if (r.ok) sent++; else skipped.push(e.name);
+  }
+  await setKV(env, 'pay_sent_' + date, { at: now(), sent });
+  return { sent, skipped };
+}
+
 /* ---------- Вебхук бота ---------- */
 async function webhook(req, env) {
   if (req.headers.get('x-telegram-bot-api-secret-token') !== env.WEBHOOK_SECRET) return new Response('no', { status: 403 });
@@ -457,6 +526,9 @@ async function webhook(req, env) {
     }
     return new Response('ok');
   }
+  if (msg && msg.from && msg.chat && msg.chat.type === 'private')
+    await env.DB.prepare('INSERT INTO contacts (tg_id,username,name,updated) VALUES (?,?,?,?) ON CONFLICT(tg_id) DO UPDATE SET username=excluded.username, name=excluded.name, updated=excluded.updated')
+      .bind(msg.from.id, msg.from.username || '', [msg.from.first_name, msg.from.last_name].filter(Boolean).join(' '), now()).run();
   if (msg && msg.text) {
     const kb = { inline_keyboard: [[{ text: '📅 Открыть приложение', web_app: { url: appUrl(req) } }]] };
     if (msg.text.startsWith('/start') || msg.text.startsWith('/app'))
@@ -484,6 +556,13 @@ async function remind(env) {
     const tl = new Date(t + 5 * H), mins = tl.getUTCHours() * 60 + tl.getUTCMinutes(), today = tashDate(t);
     const last = await getKV(env, 'daily_sent');
     if (mins >= hh * 60 + mm && last !== today && await getKV(env, 'group')) { await setKV(env, 'daily_sent', today); await dailyReport(env, today); }
+  }
+  // ведомость: личные сообщения сотрудникам в конце дня
+  const staff = await getStaff(env);
+  if (staff.auto !== false) {
+    const [ph, pm] = String(staff.time || '23:30').split(':').map(Number);
+    const tl = new Date(t + 5 * H), mins = tl.getUTCHours() * 60 + tl.getUTCMinutes(), today = tashDate(t);
+    if (mins >= ph * 60 + pm && !(await getKV(env, 'pay_sent_' + today))) await sendPayroll(env, today);
   }
   const { results } = await env.DB.prepare('SELECT id, data, deadline, n24, nover FROM videos WHERE done=0 AND deleted=0').all();
   for (const r of results) {
