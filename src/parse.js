@@ -8,7 +8,7 @@ const MONTHS = [
 ];
 const WEEKDAYS = [[/^(воскр|yakshan)/, 0], [/^(понед|dushan)/, 1], [/^(вторн|seshan)/, 2], [/^(сред|chorshan)/, 3], [/^(четв|payshan)/, 4], [/^(пятн|juma)/, 5], [/^(суббот|shanba)/, 6]];
 const QUEST_ALIASES = [
-  [/hell|хел+|хэл+|\bhh\b|hh2|хаус|house/i, 'Hell House 2'],
+  [/hell|хел+[\s-]*х[ао]ус|хэл+|хелл|(?:^|[^a-z])hh2?(?![a-z])/i, 'Hell House 2'],
   [/катаком|catacomb|katakom/i, 'Катакомбы'],
   [/подзем|podzem|dungeon/i, 'Подземелье'],
   [/бабуш|каникул|babush|kanikul|бабк/i, 'Каникулы бабушки']
@@ -18,8 +18,46 @@ const NAME_STOP = /(salom|хотели|хотел|подскаж|скажите|
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 
+// Ищем в тексте ответы по пунктам нашей формы:
+// 1 телефон, 2 имя, 3 кол-во игроков, 4 дата и время, 5 квест.
+// Строки-подсказки из шаблона («1: Номер телефона») пропускаем.
+const LABELS = [null, /номер\s*телефона|телефон|номер|tel/i, /ваше\s*имя|имя|ism/i, /количество\s*игроков|кол-?во\s*игроков|количество|игроков|kishi/i, /дата\s*и\s*время|дата|время|sana|vaqt/i, /название\s*квеста|квест|kvest/i];
+function numberedBlock(text) {
+  const lines = text.split(/\n/);
+  let best = null, cur = null;
+  for (const raw of lines) {
+    const m = raw.match(/^\s*([1-5])(?:\s*[.):\-–]\s*|\s+)(.+)$/);
+    if (!m) { if (raw.trim() && cur) { if (Object.keys(cur).length >= 3) best = cur; cur = null; } continue; }
+    const n = +m[1];
+    let v = m[2].trim();
+    const lab = v.match(LABELS[n]);
+    if (lab && lab.index === 0) v = v.slice(lab[0].length).replace(/^[\s:\-–—=]+/, '').trim(); // «Номер телефона: 90...» → «90...»
+    if (cur && n <= Math.max(...Object.keys(cur).map(Number))) { if (Object.keys(cur).length >= 3) best = cur; cur = null; }
+    cur = cur || {};
+    if (v) cur[n] = v;
+  }
+  if (cur && Object.keys(cur).length >= 3) best = cur;
+  return best;
+}
+
 // today — 'YYYY-MM-DD' по Ташкенту
-export function parseBooking(text, { today, quests = [] } = {}) {
+export function parseBooking(text, opts = {}) {
+  const block = !opts._inner && numberedBlock(text || '');
+  if (block) {
+    const inner = t => parseBooking(t, { ...opts, _inner: true }).fields;
+    const f = {};
+    if (block[1]) { const p = inner(block[1]).phone; if (p) f.phone = p; }
+    if (block[2]) { const n = block[2].replace(/[^A-Za-zА-Яа-яЁёЎўҚқҒғҲҳʻ'\-\s]/g, ' ').replace(/\s+/g, ' ').trim(); if (n) f.name = n.slice(0, 40).split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' '); }
+    if (block[3]) { const g = inner(/^\d{1,2}\s*$/.test(block[3]) ? block[3] + ' чел' : block[3]); if (g.guests) { f.guests = g.guests; if (g.guestsText) f.guestsText = g.guestsText; } }
+    if (block[4]) { const d = inner(block[4]); if (d.date) f.date = d.date; if (d.time) f.time = d.time; }
+    if (block[5]) { const q = inner(block[5]).quest; if (q) f.quest = q; else f.questRaw = block[5]; }
+    if (!f.phone) { const p = inner(text).phone; if (p) f.phone = p; } // телефон могли написать отдельно
+    const res = { fields: f, missing: ['quest', 'date', 'time', 'name', 'phone'].filter(k => !f[k]), form: true };
+    res.score = (f.phone ? 2 : 0) + (f.date ? 1 : 0) + (f.time ? 1 : 0) + (f.quest ? 1 : 0) + (f.guests ? 1 : 0) + (f.name ? 0.5 : 0);
+    res.isBooking = Object.keys(block).length >= 3 && res.score >= 2.5;
+    return res;
+  }
+  const { today, quests = [] } = opts;
   const res = { fields: {}, score: 0, missing: [] };
   if (!text || typeof text !== 'string') return res;
   const base = today ? new Date(today + 'T00:00:00Z') : new Date();

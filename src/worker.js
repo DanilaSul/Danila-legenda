@@ -309,7 +309,7 @@ async function requestCard(env, r, closed) {
   const f = JSON.parse(r.fields || '{}');
   let t = `📩 <b>Заявка из чата с клиентом</b>\n`;
   t += `👤 ${escH(f.name || '—')}${f.phone ? ' · ' + escH(f.phone) : ''}\n`;
-  t += `🎯 ${escH(f.quest || '—')}\n📅 ${f.date ? humanDate(f.date) : '—'} · ${escH(f.time || '—')}\n`;
+  t += `🎯 ${escH(f.quest || (f.questRaw ? f.questRaw + ' (?)' : '—'))}\n📅 ${f.date ? humanDate(f.date) : '—'} · ${escH(f.time || '—')}\n`;
   if (f.guests) t += `👥 ${escH(f.guestsText || f.guests)} чел.\n`;
   const miss = ['quest', 'date', 'time'].filter(k => !f[k]);
   if (miss.length) t += `⚠️ Не распознано: ${miss.map(k => FIELD_RU[k]).join(', ')} — нажми «Изменить»\n`;
@@ -348,8 +348,14 @@ async function closeRequest(env, id, status, footer, bookingId) {
   return true;
 }
 async function onBusinessMessage(env, msg, origin) {
-  const conn = await getKV(env, 'business');
-  if (conn && msg.from && msg.from.id === conn.user_id) return; // наши собственные ответы клиенту не разбираем
+  let conn = await getKV(env, 'business');
+  if (msg.business_connection_id && (!conn || conn.id !== msg.business_connection_id)) { // узнаём, чей это аккаунт
+    const r = await tg(env, 'getBusinessConnection', { business_connection_id: msg.business_connection_id });
+    if (r.ok && r.result && r.result.user) { conn = { id: r.result.id, user_id: r.result.user.id, enabled: r.result.is_enabled, at: now() }; await setKV(env, 'business', conn); }
+  }
+  if (msg.sender_business_bot) return;
+  if (!conn || (msg.from && msg.from.id === conn.user_id)) return; // свои сообщения (шаблоны, ответы) не разбираем
+  if (msg.chat && msg.from && msg.chat.id !== msg.from.id) return;
   const text = (msg.text || msg.caption || '').trim(); if (!text) return;
   if ((msg.date || 0) * 1000 < REQUESTS_FROM_MS) return; // сообщение отправлено до начала работы
   const st = await getSettings(env), t = now();
