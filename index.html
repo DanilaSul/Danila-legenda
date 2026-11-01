@@ -111,6 +111,24 @@ nav button.on{color:var(--accent)}
 .list-item input{flex:1}
 .del{border:0;background:var(--bg2);color:var(--danger);width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .qset{border:1px solid var(--line);border-radius:14px;padding:4px 12px 12px;margin-bottom:10px}
+.vid{position:relative;overflow:hidden;border-left:5px solid var(--vc)}
+.vid .tint{position:absolute;inset:0;background:var(--vc);opacity:.10;pointer-events:none}
+.vid.over{animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 3px rgba(229,72,77,.35)}}
+.cd{font-weight:800;font-size:15px;color:var(--vc);white-space:nowrap}
+.prog{height:5px;border-radius:3px;background:var(--bg2);margin-top:8px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--vc);border-radius:3px}
+.btn.done{background:var(--ok);color:#fff;padding:11px;margin-top:10px}
+nav button{position:relative}
+.nb{position:absolute;top:0;left:50%;margin-left:6px;min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;line-height:17px}
+.mnav{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.mnav b{flex:1;text-align:center;font-size:16px}
+.mnav button{border:0;background:var(--bg);width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.rep-item{display:flex;align-items:center;gap:12px}
+.rep-date{width:46px;height:46px;border-radius:12px;background:var(--bg2);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:var(--hint);flex:0 0 auto}
+.rep-date b{font-size:17px;color:var(--text);line-height:1}
+.tile.custom{border:1.5px dashed var(--line);background:transparent}
+.tile.custom .n{color:var(--accent);display:flex;gap:3px;align-items:center}
 .toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translate(-50%,-20px);background:rgba(20,22,26,.92);color:#fff;padding:10px 16px;border-radius:14px;font-size:14px;font-weight:500;z-index:50;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;display:flex;gap:6px;align-items:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 </style>
@@ -131,6 +149,12 @@ nav button.on{color:var(--accent)}
   <symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></symbol>
   <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4z"/><rect x="2" y="6" width="14" height="12" rx="2.5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
 </svg>
 
 <header>
@@ -142,12 +166,14 @@ nav button.on{color:var(--accent)}
 <nav>
   <button data-tab="bookings" class="on"><svg class="i"><use href="#i-cal"/></svg>Брони</button>
   <button data-tab="cash"><svg class="i"><use href="#i-wallet"/></svg>Касса</button>
+  <button data-tab="video"><svg class="i"><use href="#i-video"/></svg>Видео<span class="nb" id="vbadge" style="display:none"></span></button>
   <button data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg>Настройки</button>
 </nav>
 <div class="sheet-bg" id="sheetBg"></div>
 <div class="sheet" id="sheet"></div>
 <div class="toast" id="toast"></div>
 <input id="dpick" type="date" style="position:fixed;left:-100px;opacity:0">
+<input id="tpick" type="time" step="900" style="position:fixed;left:-100px;opacity:0">
 
 <script>
 const tg = window.Telegram && Telegram.WebApp;
@@ -164,51 +190,67 @@ const cloud = {
     if(useCloud) tg.CloudStorage.getItems(keys,(e,v)=>{ const o={}; if(!e&&v) for(const k in v) if(v[k]) try{o[k]=JSON.parse(v[k])}catch(_){} r(o); });
     else { const o={}; keys.forEach(k=>{try{const v=localStorage.getItem(k); if(v) o[k]=JSON.parse(v)}catch(_){}}); r(o); } }),
   set:(k,v)=>new Promise(r=>{ const s=JSON.stringify(v); if(useCloud) tg.CloudStorage.setItem(k,s,e=>{ if(e) toast('Ошибка сохранения','x'); r(!e)}); else { try{localStorage.setItem(k,s)}catch(_){} r(true)} }),
+  del:k=>new Promise(r=>{ if(useCloud) tg.CloudStorage.removeItem(k,()=>r()); else { try{localStorage.removeItem(k)}catch(_){} r(); } }),
   keys:()=>new Promise(r=>{ if(useCloud) tg.CloudStorage.getKeys((e,k)=>r(e?[]:k)); else { try{r(Object.keys(localStorage))}catch(_){r([])} } })
 };
 const pending={};
 function persist(k,v){ clearTimeout(pending[k]); pending[k]=setTimeout(()=>cloud.set(k,v),250); }
+// Брони дня сохраняем кусками (в облаке Telegram лимит 4 КБ на одну запись)
+const chunkCount={};
+function saveDay(d){
+  clearTimeout(pending['b_'+d]);
+  pending['b_'+d]=setTimeout(()=>{
+    const list=S.bookings[d]||[], chunks=[[]]; let size=2;
+    for(const b of list){ const l=JSON.stringify(b).length+1; if(size+l>3900&&chunks[chunks.length-1].length){chunks.push([]);size=2} chunks[chunks.length-1].push(b); size+=l; }
+    chunks.forEach((c,i)=>cloud.set(i?`b_${d}_${i}`:`b_${d}`,c));
+    for(let i=chunks.length;i<(chunkCount[d]||1);i++) cloud.del(`b_${d}_${i}`);
+    chunkCount[d]=chunks.length;
+  },250);
+}
 
 /* ================= Настройки по умолчанию ================= */
 const QUEST_COLORS=['#e5484d','#e8a01a','#8e4ec6','#22a861','#3478f6','#0fa3b1'];
+const HOURLY=['11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00'];
 const DEFAULT_SETTINGS = {
-  v:2,
+  v:3,
   quests:[
     {name:'Hell House 2',     price:500000, actors:30000, color:'#e5484d'},
     {name:'Катакомбы',        price:500000, actors:30000, color:'#e8a01a'},
     {name:'Подземелье',       price:400000, actors:0,     color:'#8e4ec6'},
     {name:'Каникулы бабушки', price:400000, actors:0,     color:'#22a861'}
   ],
-  slots:['10:00','11:30','13:00','14:30','16:00','17:30','19:00','20:30','22:00'],
+  slots:HOURLY.slice(),
   defaultGuests:4,
   mgmt:[{name:'Данил',pct:10},{name:'Амир',pct:5}],
   ownerName:'Расова',
   payFields:['Наличные','Карта','Перевод'],
   expenseFields:['Расходы'],
+  videoMaker:'Амир',
+  videoDays:3,
   admin:''
 };
 const STATUSES={new:'Новая',ok:'Подтверждена',done:'Прошла',cancel:'Отмена'};
 const STATUS_CLS={new:'',ok:'b-ok',done:'b-done',cancel:'b-cancel'};
 
-let S={tab:'bookings',date:today(),quest:'*',cashMode:'day',settings:clone(DEFAULT_SETTINGS),bookings:{},reports:{}};
+let S={tab:'bookings',date:today(),quest:'*',cashView:'list',month:today().slice(0,7),settings:clone(DEFAULT_SETTINGS),bookings:{},reports:{},videos:{},showDone:false};
 
 /* ================= Утилиты ================= */
 function clone(o){return JSON.parse(JSON.stringify(o))}
 function today(){return fmtDate(new Date())}
 function fmtDate(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
-function parseDate(s){const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)}
+function parseDate(s){const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d||1)}
 function human(s){return parseDate(s).toLocaleDateString('ru-RU',{day:'numeric',month:'long',weekday:'short'})}
-function monthName(s){const t=parseDate(s).toLocaleDateString('ru-RU',{month:'long',year:'numeric'});return t[0].toUpperCase()+t.slice(1)}
+function monthName(ym){const t=parseDate(ym).toLocaleDateString('ru-RU',{month:'long',year:'numeric'}).replace(' г.','');return t[0].toUpperCase()+t.slice(1)}
 function money(n){return Math.round(+n||0).toLocaleString('ru-RU')+' сум'}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function haptic(t='light'){try{tg.HapticFeedback.impactOccurred(t)}catch(_){}}
 function hapticOk(){try{tg.HapticFeedback.notificationOccurred('success')}catch(_){}}
 function toast(t,icon='check'){const el=$('toast');el.innerHTML=ic(icon,'s')+esc(t);el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1500)}
+function plural(n,a,b,c){n=Math.abs(n)%100;const m=n%10;if(n>10&&n<20)return c;if(m>1&&m<5)return b;if(m===1)return a;return c}
 const quest = name => S.settings.quests.find(q=>q.name===name) || {name,price:0,actors:0,color:'#8a8f99'};
 const dayList = d => S.bookings[d] || (S.bookings[d]=[]);
 function finalPrice(b){ const p=+b.price||0, d=+b.discount||0; const off=b.discType==='pct'?p*d/100:d; return Math.max(0,Math.round(p-off)); }
-function saveDay(d){ persist('b_'+d, dayList(d)); }
 
 /* ================= Лента дней ================= */
 function renderDays(){
@@ -225,18 +267,23 @@ function renderDays(){
 function setDate(d){ if(!d) return; S.date=d; haptic(); $('days').querySelectorAll('.day').forEach(b=>b.classList.toggle('on',b.dataset.d===d)); if(!$('days').querySelector('.on')) renderDays(); render(); }
 
 /* ================= Навигация ================= */
+const TITLES={bookings:'Брони',cash:'Касса',video:'Видео',settings:'Настройки'};
 function go(tab){
   if(S.tab===tab) return; S.tab=tab; haptic();
+  if(tab==='cash') S.cashView='list';
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
-  $('title').textContent={bookings:'Брони',cash:'Касса',settings:'Настройки'}[tab];
-  $('days').style.display=tab==='settings'?'none':'flex';
-  $('fab').style.display=tab==='bookings'?'flex':'none';
   render(); window.scrollTo(0,0);
 }
 function render(){
+  $('title').textContent=TITLES[S.tab];
+  const showDays = S.tab==='bookings' || (S.tab==='cash' && S.cashView==='create');
+  $('days').style.display=showDays?'flex':'none';
+  $('fab').style.display=(S.tab==='bookings'||S.tab==='video')?'flex':'none';
   const v=$('view');
-  v.innerHTML=`<div class="view">${S.tab==='bookings'?viewBookings():S.tab==='cash'?viewCash():viewSettings()}</div>`;
-  if(S.tab==='cash') calcCash();
+  const html = S.tab==='bookings'?viewBookings():S.tab==='cash'?viewCash():S.tab==='video'?viewVideos():viewSettings();
+  v.innerHTML=`<div class="view">${html}</div>`;
+  if(S.tab==='cash'&&S.cashView==='create') calcCash();
+  updateVideoBadge();
 }
 
 /* ================= Брони ================= */
@@ -246,12 +293,14 @@ function viewBookings(){
   let h=`<div class="chips"><button class="chip ${S.quest==='*'?'on':''}" data-q="*">Все</button>`+
     st.quests.map(q=>`<button class="chip ${S.quest===q.name?'on':''}" data-q="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')+`</div>`;
   if(S.quest!=='*'){
-    const q=quest(S.quest);
-    h+=`<div class="tiles">`+st.slots.map(t=>{
-      const b=all.find(x=>x.time===t&&x.quest===q.name&&x.status!=='cancel');
+    const q=quest(S.quest), active=all.filter(x=>x.quest===q.name&&x.status!=='cancel');
+    const times=[...new Set([...st.slots,...active.map(b=>b.time)])].sort();
+    h+=`<div class="tiles">`+times.map(t=>{
+      const b=active.find(x=>x.time===t);
       return b? `<button class="tile busy" style="--qc:${q.color}" data-open="${b.id}"><div class="t">${t}</div><div class="n ell">${esc(b.name||'Без имени')}</div></button>`
               : `<button class="tile free" data-quick="${t}"><div class="t">${t}</div><div class="n">${ic('plus','s')}свободно</div></button>`;
-    }).join('')+`</div><div class="muted" style="margin:8px 4px 0">Нажми на свободное время — бронь создастся в 1 клик</div>`;
+    }).join('')+`<button class="tile custom" data-act="customtime"><div class="t">${ic('clock','s')}</div><div class="n">другое время</div></button></div>
+    <div class="muted" style="margin:8px 4px 0">Нажми на свободное время — бронь создастся в 1 клик</div>`;
   }
   const active=list.filter(b=>b.status!=='cancel');
   const sum=active.reduce((s,b)=>s+finalPrice(b),0);
@@ -260,9 +309,9 @@ function viewBookings(){
   for(const b of list) h+=bookingCard(b);
   return h;
 }
-function plural(n,a,b,c){n=Math.abs(n)%100;const m=n%10;if(n>10&&n<20)return c;if(m>1&&m<5)return b;if(m===1)return a;return c}
+function videoFor(bid){ return Object.values(S.videos).find(v=>v.bookingId===bid); }
 function bookingCard(b){
-  const q=quest(b.quest), fp=finalPrice(b), hasDisc=fp!==(+b.price||0);
+  const q=quest(b.quest), fp=finalPrice(b), hasDisc=fp!==(+b.price||0), v=videoFor(b.id);
   return `<div class="card tap bk ${b.status==='cancel'?'cancelled':''}" style="--qc:${q.color}" data-open="${b.id}">
     <div class="bar"></div>
     <div class="tm">${esc(b.time)}</div>
@@ -273,6 +322,7 @@ function bookingCard(b){
         <span class="badge ${STATUS_CLS[b.status||'new']}">${STATUSES[b.status||'new']}</span>
         ${hasDisc?`<span class="badge b-disc">${ic('tag','s')} −${b.discType==='pct'?b.discount+'%':money(b.discount)}</span>`:''}
         ${+b.prepay?`<span class="badge">предоплата ${money(b.prepay)}</span>`:''}
+        ${v?`<span class="badge ${v.done?'b-done':'b-cancel'}">${ic('video','s')} ${v.done?'видео сдано':'видео'}</span>`:''}
       </div>
       ${b.comment?`<div class="muted" style="margin-top:4px">${esc(b.comment)}</div>`:''}
     </div>
@@ -287,66 +337,140 @@ function quickAdd(time){
   const b=newBooking(time,S.quest); dayList(S.date).push(b); saveDay(S.date);
   hapticOk(); toast(`Бронь на ${time} создана`); renderDays(); render(); openBooking(b.id);
 }
+function pickTime(cb){
+  const p=$('tpick'); p.value=''; p.onchange=()=>{ if(p.value) cb(p.value); };
+  try{p.showPicker()}catch(_){p.focus();p.click()}
+}
 
 let editing=null;
 function openBooking(id){
   const st=S.settings; const ex=dayList(S.date).find(x=>x.id===id);
   editing = ex ? clone(ex) : newBooking(null,S.quest==='*'?null:S.quest); editing._new=!ex;
-  const b=editing;
+  const b=editing, v=ex&&videoFor(ex.id);
   openSheet(`
     <div class="sh-head"><h3>${ex?'Бронь':'Новая бронь'}</h3><button class="x" data-act="close">${ic('x','s')}</button></div>
     <div class="muted">${human(S.date)}</div>
     <label>Квест</label>
-    <div class="chips" id="f_quest">${st.quests.map(q=>`<button class="chip ${q.name===b.quest?'on':''}" data-fq="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')}</div>
+    <div class="chips">${st.quests.map(q=>`<button class="chip ${q.name===b.quest?'on':''}" data-fq="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')}</div>
+    <label>Время</label>
+    <div class="chips" id="f_times">${[...new Set([...st.slots,b.time])].sort().map(t=>`<button class="chip ${t===b.time?'on':''}" data-ft="${t}">${t}</button>`).join('')}<button class="chip" data-act="ftcustom" style="color:var(--accent)">${ic('clock','s')} Изменить</button></div>
     <div class="two">
-      <div><label>Время</label><input id="f_time" type="time" value="${esc(b.time)}"></div>
       <div><label>Гостей</label><input id="f_guests" type="number" inputmode="numeric" value="${esc(b.guests)}"></div>
+      <div><label>Телефон</label><input id="f_phone" type="tel" value="${esc(b.phone)}" placeholder="+998 .."></div>
     </div>
-    <label>Имя клиента</label><input id="f_name" value="${esc(b.name)}" placeholder="Имя" autocomplete="off">
-    <label>Телефон</label><input id="f_phone" type="tel" value="${esc(b.phone)}" placeholder="+998 ..">
+    <label>Имя клиента / команда</label><input id="f_name" value="${esc(b.name)}" placeholder="Имя" autocomplete="off">
     <label>Цена, сум</label><input id="f_price" type="number" inputmode="numeric" value="${esc(b.price)}" oninput="previewPrice()">
     <label>Скидка</label>
     <div class="two">
       <input id="f_discount" type="number" inputmode="numeric" value="${esc(b.discount||'')}" placeholder="0" oninput="previewPrice()">
-      <div class="seg" id="f_disctype"><button data-dt="sum" class="${b.discType!=='pct'?'on':''}">сум</button><button data-dt="pct" class="${b.discType==='pct'?'on':''}">%</button></div>
+      <div class="seg"><button data-dt="sum" class="${b.discType!=='pct'?'on':''}">сум</button><button data-dt="pct" class="${b.discType==='pct'?'on':''}">%</button></div>
     </div>
     <div class="card" style="background:var(--bg2);margin:10px 0 0" id="f_final"></div>
     <label>Предоплата, сум</label><input id="f_prepay" type="number" inputmode="numeric" value="${esc(b.prepay||'')}" placeholder="0">
     <label>Оплата</label>
-    <div class="seg" id="f_pay">${['',...st.payFields].map(p=>`<button data-pay="${esc(p)}" class="${(b.pay||'')===p?'on':''}">${p?esc(p):'—'}</button>`).join('')}</div>
+    <div class="seg">${['',...st.payFields].map(p=>`<button data-pay="${esc(p)}" class="${(b.pay||'')===p?'on':''}">${p?esc(p):'—'}</button>`).join('')}</div>
     <label>Статус</label>
-    <div class="seg" id="f_status">${Object.entries(STATUSES).map(([k,v])=>`<button data-st="${k}" class="${(b.status||'new')===k?'on':''}">${v}</button>`).join('')}</div>
+    <div class="seg">${Object.entries(STATUSES).map(([k,v])=>`<button data-st="${k}" class="${(b.status||'new')===k?'on':''}">${v}</button>`).join('')}</div>
     <label>Комментарий</label><textarea id="f_comment" rows="2" placeholder="Например: день рождения">${esc(b.comment)}</textarea>
+    ${ex?(v?`<div class="card" style="background:var(--bg2);margin-top:12px"><div class="row">${ic('video')}<span class="grow">${v.done?'Видео сдано':'Видео в работе у '+esc(v.maker)}</span></div></div>`
+           :`<button class="btn soft" data-act="buyvideo">${ic('video','s')} Купили видео</button>`):''}
     <button class="btn" data-act="save">${ic('check','s')} Сохранить</button>
     ${ex?`<button class="btn danger" data-act="delete">${ic('trash','s')} Удалить бронь</button>`:''}
   `);
   previewPrice();
 }
+function setEditTime(t){
+  editing.time=t; const box=$('f_times'); if(!box) return;
+  if(!box.querySelector(`[data-ft="${t}"]`)){ const b=document.createElement('button'); b.className='chip'; b.dataset.ft=t; b.textContent=t; box.insertBefore(b,box.lastElementChild); }
+  box.querySelectorAll('[data-ft]').forEach(c=>c.classList.toggle('on',c.dataset.ft===t)); haptic();
+}
 function previewPrice(){
   if(!editing) return;
   editing.price=+$('f_price').value||0; editing.discount=+$('f_discount').value||0;
-  const fp=finalPrice(editing);
-  $('f_final').innerHTML=`<div class="row"><span class="grow muted">Итого к оплате</span><b class="big">${money(fp)}</b></div>`;
+  $('f_final').innerHTML=`<div class="row"><span class="grow muted">Итого к оплате</span><b class="big">${money(finalPrice(editing))}</b></div>`;
 }
-function saveBooking(){
+function collectBooking(){
   const b=editing, g=k=>$('f_'+k).value.trim();
-  Object.assign(b,{time:g('time'),name:g('name'),phone:g('phone'),guests:+g('guests')||0,price:+g('price')||0,discount:+g('discount')||0,prepay:+g('prepay')||0,comment:g('comment')});
+  Object.assign(b,{name:g('name'),phone:g('phone'),guests:+g('guests')||0,price:+g('price')||0,discount:+g('discount')||0,prepay:+g('prepay')||0,comment:g('comment')});
   const isNew=b._new; delete b._new;
   const list=dayList(S.date);
   if(isNew) list.push(b); else { const i=list.findIndex(x=>x.id===b.id); if(i>=0) list[i]=b; }
-  saveDay(S.date); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render();
+  saveDay(S.date); return b;
 }
+function saveBooking(){ collectBooking(); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render(); }
 async function deleteBooking(){
   if(!(await confirmBox('Удалить бронь?'))) return;
   S.bookings[S.date]=dayList(S.date).filter(x=>x.id!==editing.id); saveDay(S.date);
   editing=null; closeSheet(); toast('Удалено','trash'); renderDays(); render();
 }
 
-/* ================= Касса ================= */
-function periodDates(){
-  if(S.cashMode==='day') return [S.date];
-  const ym=S.date.slice(0,7); return Object.keys(S.bookings).filter(d=>d.startsWith(ym)).sort();
+/* ================= Видео ================= */
+const H=3600e3;
+function videoState(v){
+  const total=(v.deadline-v.created)||1, left=v.deadline-Date.now(), f=Math.max(0,Math.min(1,left/total));
+  const hue=Math.round(120*f); // 120 зелёный → 0 красный
+  const color=left<=0?'#e5484d':`hsl(${hue},${70+Math.round((1-f)*15)}%,${42+Math.round(f*0)}%)`;
+  let txt;
+  if(left<=0){ const o=-left; txt='просрочено на '+(o>=24*H?Math.floor(o/24/H)+' д ':'')+Math.floor(o%(24*H)/H)+' ч'; }
+  else { const d=Math.floor(left/24/H), hh=Math.floor(left%(24*H)/H), mm=Math.floor(left%H/6e4); txt=(d?d+' д ':'')+hh+' ч'+(d?'':' '+mm+' мин'); }
+  return {f,color,txt,over:left<=0};
 }
+function activeVideos(){ return Object.values(S.videos).filter(v=>!v.done).sort((a,b)=>a.deadline-b.deadline); }
+function updateVideoBadge(){
+  const n=activeVideos().length, el=$('vbadge'); if(!el) return;
+  el.style.display=n?'block':'none'; el.textContent=n;
+  el.style.background=n&&activeVideos().some(v=>videoState(v).f<.34)?'var(--danger)':'var(--accent)';
+}
+function viewVideos(){
+  const act=activeVideos(), done=Object.values(S.videos).filter(v=>v.done).sort((a,b)=>b.doneAt-a.doneAt);
+  let h=`<div class="muted" style="margin:2px 4px 10px">Монтаж: <b style="color:var(--text)">${esc(S.settings.videoMaker)}</b> · срок ${S.settings.videoDays} ${plural(S.settings.videoDays,'день','дня','дней')} · чем ближе срок, тем краснее</div>`;
+  if(!act.length) h+=`<div class="empty">${ic('video')}<div style="margin-top:6px">Нет видео в работе</div><div class="muted">Нажми + или «Купили видео» в брони</div></div>`;
+  for(const v of act){
+    const s=videoState(v), q=quest(v.quest);
+    h+=`<div class="card vid ${s.over?'over':''}" style="--vc:${s.color}"><div class="tint"></div>
+      <div class="row"><div class="grow"><div class="ell"><b style="font-size:16px">${esc(v.team||'Команда')}</b></div>
+        <div class="muted ell"><span class="dot" style="display:inline-block;background:${q.color};width:8px;height:8px;margin-right:4px"></span>${esc(v.quest)} · игра ${parseDate(v.gameDate).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}${v.time?' '+esc(v.time):''}</div></div>
+        <div style="text-align:right"><div class="cd">${s.txt}</div><div class="muted">${s.over?'':'осталось'}</div></div></div>
+      ${v.comment?`<div class="muted" style="margin-top:6px">${esc(v.comment)}</div>`:''}
+      <div class="prog"><i style="width:${Math.max(4,s.f*100)}%"></i></div>
+      <div class="row"><button class="btn done grow" data-vdone="${v.id}">${ic('check','s')} Видео сдано</button><button class="del" style="margin-top:10px" data-vedit="${v.id}">${ic('edit','s')}</button></div>
+    </div>`;
+  }
+  if(done.length){
+    h+=`<button class="btn ghost" data-act="toggledone">${S.showDone?'Скрыть':'Показать'} сданные (${done.length})</button>`;
+    if(S.showDone) for(const v of done.slice(0,30)) h+=`<div class="card row" style="opacity:.7">${ic('check','s')}<div class="grow"><b>${esc(v.team)}</b><div class="muted">${esc(v.quest)} · сдано ${new Date(v.doneAt).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</div></div><button class="del" data-vundo="${v.id}" title="Вернуть">${ic('left','s')}</button></div>`;
+  }
+  return h;
+}
+function saveVideo(v){ S.videos[v.id]=v; persist('v_'+v.id,v); }
+function newVideo(fromBooking){
+  const now=Date.now(), b=fromBooking;
+  return {id:uid(),team:b?b.name:'',quest:b?b.quest:S.settings.quests[0].name,gameDate:S.date,time:b?b.time:'',bookingId:b?b.id:null,
+    maker:S.settings.videoMaker,created:now,deadline:now+S.settings.videoDays*24*H,comment:'',done:false};
+}
+let vEditing=null;
+function openVideo(id){
+  const st=S.settings, ex=id&&S.videos[id]; vEditing=ex?clone(ex):newVideo(null);
+  const v=vEditing, todays=(S.bookings[today()]||[]).filter(b=>b.status!=='cancel'&&!videoFor(b.id));
+  openSheet(`
+    <div class="sh-head"><h3>${ex?'Видео':'Новое видео'}</h3><button class="x" data-act="close">${ic('x','s')}</button></div>
+    ${!ex&&todays.length?`<label>Из сегодняшних броней</label><div class="chips">${todays.map(b=>`<button class="chip" data-vfrom="${b.id}"><span class="dot" style="background:${quest(b.quest).color}"></span>${esc(b.time)} ${esc(b.name||'Без имени')}</button>`).join('')}</div>`:''}
+    <label>Команда</label><input id="v_team" value="${esc(v.team)}" placeholder="Название команды / имя">
+    <label>Квест</label>
+    <div class="chips" id="v_quest">${st.quests.map(q=>`<button class="chip ${q.name===v.quest?'on':''}" data-vq="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')}</div>
+    <label>Сдать до</label><input id="v_deadline" type="datetime-local" value="${toLocalDT(v.deadline)}">
+    <label>Комментарий</label><textarea id="v_comment" rows="2" placeholder="Пожелания команды">${esc(v.comment)}</textarea>
+    <button class="btn" data-act="vsave">${ic('check','s')} ${ex?'Сохранить':'Добавить видео'}</button>
+    ${ex?`<button class="btn danger" data-act="vdelete">${ic('trash','s')} Удалить</button>`:''}`);
+}
+function toLocalDT(ms){ const d=new Date(ms); return fmtDate(d)+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function saveVideoForm(){
+  const v=vEditing; v.team=$('v_team').value.trim(); v.comment=$('v_comment').value.trim();
+  const dl=new Date($('v_deadline').value).getTime(); if(dl) v.deadline=dl;
+  saveVideo(v); vEditing=null; closeSheet(); hapticOk(); toast('Видео добавлено'); render();
+}
+
+/* ================= Касса и отчёты ================= */
 function calcSplit(dates){
   const st=S.settings; const byQ={};
   st.quests.forEach(q=>byQ[q.name]={q,games:0,revenue:0});
@@ -367,41 +491,83 @@ function calcSplit(dates){
   tot.mgSum=tot.mgmt.reduce((s,m)=>s+m.sum,0);
   return {rows,tot};
 }
-function viewCash(){
-  const st=S.settings, dates=periodDates(), {rows,tot}=calcSplit(dates);
-  const mgPct=st.mgmt.reduce((s,m)=>s+(+m.pct||0),0);
-  let h=`<div class="seg" style="margin-bottom:10px"><button data-cm="day" class="${S.cashMode==='day'?'on':''}">День · ${parseDate(S.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</button><button data-cm="month" class="${S.cashMode==='month'?'on':''}">${monthName(S.date)}</button></div>`;
-  h+=`<div class="card total-card">
-    <div class="muted">Выручка за ${S.cashMode==='day'?human(S.date):monthName(S.date).toLowerCase()}</div>
+function cashTotals(rep){
+  const st=S.settings; let pin=0,pout=0;
+  st.payFields.forEach(f=>pin+=+(rep.values[f]||0)); st.expenseFields.forEach(f=>pout+=+(rep.values[f]||0));
+  return {pin,pout};
+}
+function splitBlock(rows,tot,title){
+  const st=S.settings, mgPct=st.mgmt.reduce((s,m)=>s+(+m.pct||0),0);
+  let h=`<div class="card total-card">
+    <div class="muted">${title}</div>
     <div class="big" style="font-size:28px;margin:2px 0 6px">${money(tot.revenue)}</div>
     <div class="sum"><span>Игр</span><b>${tot.games}</b></div>
     <div class="sum"><span>Актёры</span><b>${money(tot.actors)}</b></div>
     <div class="sum"><span>Управление ${mgPct}%</span><b>${money(tot.mgSum)}</b></div>
     ${tot.mgmt.map(m=>`<div class="sum sub" style="color:inherit;opacity:.75"><span>${esc(m.name)} ${m.pct}%</span><b style="color:inherit">${money(m.sum)}</b></div>`).join('')}
     <div class="sum"><span>${esc(st.ownerName)}</span><b class="big" style="font-size:18px">${money(tot.owner)}</b></div>
-  </div>`;
-  h+=`<h2>По квестам</h2>`;
+  </div><h2>По квестам</h2>`;
   for(const r of rows){
-    if(!r.games && !st.quests.includes(r.q)) continue;
+    if(!r.games){ h+=`<div class="card row" style="padding:10px 14px"><span class="dot" style="background:${r.q.color}"></span><span class="grow">${esc(r.q.name)}</span><span class="muted">игр не было</span></div>`; continue; }
     h+=`<div class="card"><div class="qhead"><span class="dot" style="background:${r.q.color}"></span>${esc(r.q.name)}<span class="grow"></span><span class="muted">${r.games} ${plural(r.games,'игра','игры','игр')}</span></div>`;
-    if(!r.games){ h+=`<div class="muted">Игр не было</div></div>`; continue; }
     h+=`<div class="sum"><span>Выручка</span><b>${money(r.revenue)}</b></div>`;
     if(r.actors) h+=`<div class="sum"><span>Актёры (${r.games} × ${money(r.q.actors)})</span><b class="out">−${money(r.actors)}</b></div><div class="sum"><span>После актёров</span><b>${money(r.base)}</b></div>`;
     h+=`<div class="sum"><span>Управление ${mgPct}%</span><b>${money(r.mgSum)}</b></div>`;
     h+=r.mg.map(m=>`<div class="sum sub"><span>${esc(m.name)} ${m.pct}%</span><b>${money(m.sum)}</b></div>`).join('');
     h+=`<div class="sum"><span>${esc(st.ownerName)}</span><b class="in">${money(r.owner)}</b></div></div>`;
   }
-  if(S.cashMode==='day'){
-    const rep=S.reports[S.date]||{values:{},note:''};
-    h+=`<h2>Касса · приход по способам оплаты</h2><div class="card">`;
-    st.payFields.forEach((f,i)=>h+=`<label>${esc(f)}</label><input type="number" inputmode="numeric" id="cp_${i}" value="${esc(rep.values[f]??'')}" placeholder="0" oninput="calcCash()">`);
-    h+=`</div><h2>Расходы</h2><div class="card">`;
-    st.expenseFields.forEach((f,i)=>h+=`<label>${esc(f)}</label><input type="number" inputmode="numeric" id="ce_${i}" value="${esc(rep.values[f]??'')}" placeholder="0" oninput="calcCash()">`);
-    h+=`<label>Комментарий</label><textarea id="c_note" rows="2">${esc(rep.note)}</textarea></div>
-    <div class="card" id="cashTotal"></div>
-    <button class="btn" data-act="savecash">${ic('save','s')} Сохранить отчёт</button>`;
+  return h;
+}
+function viewCash(){
+  let h=`<div class="seg" style="margin-bottom:12px">
+    <button data-cv="list" class="${S.cashView!=='create'?'on':''}">${ic('file','s')} Отчёты</button>
+    <button data-cv="create" class="${S.cashView==='create'?'on':''}">${ic('plus','s')} Создать отчёт</button></div>`;
+  if(S.cashView==='create') return h+viewCreateReport();
+  if(S.cashView==='view') return h+viewReport(S.date);
+  // Список готовых отчётов за месяц
+  const ym=S.month, dates=Object.keys(S.reports).filter(d=>d.startsWith(ym)).sort().reverse();
+  h+=`<div class="mnav"><button data-mn="-1">${ic('left')}</button><b>${monthName(ym)}</b><button data-mn="1">${ic('right')}</button></div>`;
+  if(!dates.length) h+=`<div class="empty">${ic('file')}<div style="margin-top:6px">Отчётов за этот месяц нет</div></div><button class="btn" data-cv="create">${ic('plus','s')} Создать отчёт</button>`;
+  else {
+    for(const d of dates){
+      const {tot}=calcSplit([d]), {pin,pout}=cashTotals(S.reports[d]); const dt=parseDate(d);
+      h+=`<div class="card tap rep-item" data-rep="${d}">
+        <div class="rep-date">${dt.toLocaleDateString('ru-RU',{weekday:'short'})}<b>${dt.getDate()}</b></div>
+        <div class="grow"><b>${money(tot.revenue)}</b><div class="muted">${tot.games} ${plural(tot.games,'игра','игры','игр')} · ${esc(S.settings.ownerName)} ${money(tot.owner)}</div></div>
+        <div style="text-align:right"><div class="muted">в кассе</div><b>${money(pin-pout)}</b></div></div>`;
+    }
+    const {rows,tot}=calcSplit(dates);
+    h+=`<h2>Итого за месяц (по отчётам)</h2>`+splitBlock(rows,tot,monthName(ym));
+    h+=`<button class="btn ghost" data-act="sharemonth">${ic('send','s')} Отправить итог месяца</button>`;
   }
-  h+=`<button class="btn ghost" data-act="share">${ic('send','s')} Отправить отчёт в чат</button>`;
+  return h;
+}
+function viewCreateReport(){
+  const st=S.settings, rep=S.reports[S.date]||{values:{},note:''}, {rows,tot}=calcSplit([S.date]);
+  let h=`<div class="muted" style="margin:0 4px 8px">${S.reports[S.date]?'Отчёт за этот день уже есть — можно исправить':'Выбери день сверху'} · ${human(S.date)}</div>`;
+  h+=splitBlock(rows,tot,'Выручка по броням · '+human(S.date));
+  h+=`<h2>Касса · приход по способам оплаты</h2><div class="card">`;
+  st.payFields.forEach((f,i)=>h+=`<label>${esc(f)}</label><input type="number" inputmode="numeric" id="cp_${i}" value="${esc(rep.values[f]??'')}" placeholder="0" oninput="calcCash()">`);
+  h+=`</div><h2>Расходы</h2><div class="card">`;
+  st.expenseFields.forEach((f,i)=>h+=`<label>${esc(f)}</label><input type="number" inputmode="numeric" id="ce_${i}" value="${esc(rep.values[f]??'')}" placeholder="0" oninput="calcCash()">`);
+  h+=`<label>Комментарий</label><textarea id="c_note" rows="2">${esc(rep.note)}</textarea></div>
+  <div class="card" id="cashTotal"></div>
+  <button class="btn" data-act="savecash">${ic('check','s')} Создать отчёт</button>`;
+  return h;
+}
+function viewReport(d){
+  const st=S.settings, rep=S.reports[d]; if(!rep) return `<div class="empty">Отчёта нет</div>`;
+  const {rows,tot}=calcSplit([d]), {pin,pout}=cashTotals(rep), diff=pin-tot.revenue;
+  let h=`<div class="row" style="margin:0 4px 8px"><b class="grow" style="font-size:17px">Отчёт · ${human(d)}</b><span class="muted">${new Date(rep.saved).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</span></div>`;
+  h+=splitBlock(rows,tot,'Выручка за день');
+  h+=`<h2>Касса</h2><div class="card">`;
+  [...st.payFields,...st.expenseFields].forEach(f=>{ if(rep.values[f]!=null) h+=`<div class="sum"><span>${st.expenseFields.includes(f)?'− ':''}${esc(f)}</span><b>${money(rep.values[f])}</b></div>`; });
+  h+=`<div class="sum"><span>Сверка с бронями</span><b class="${diff===0?'in':'out'}">${diff===0?'сходится':(diff>0?'+':'−')+money(Math.abs(diff))}</b></div>
+    <div class="sum"><span>Остаток в кассе</span><span class="big">${money(pin-pout)}</span></div>
+    ${rep.note?`<div class="muted" style="margin-top:6px">${esc(rep.note)}</div>`:''}</div>
+  <button class="btn" data-act="share">${ic('send','s')} Отправить в чат</button>
+  <button class="btn ghost" data-act="editrep">${ic('edit','s')} Изменить</button>
+  <button class="btn danger" data-act="delrep">${ic('trash','s')} Удалить отчёт</button>`;
   return h;
 }
 function readCash(){
@@ -418,29 +584,28 @@ function calcCash(){
     <div class="sum"><span>Сверка с бронями</span><b class="${diff===0?'in':'out'}">${diff===0?'сходится':(diff>0?'+':'−')+money(Math.abs(diff))}</b></div>
     <div class="sum"><span>Остаток в кассе</span><span class="big">${money(pin-pout)}</span></div>`;
 }
-function saveCash(silent){
-  if(S.cashMode!=='day') return;
+function createReport(){
   const {values,note}=readCash(); S.reports[S.date]={values,note,saved:Date.now()};
-  persist('r_'+S.date,S.reports[S.date]); if(!silent){hapticOk();toast('Отчёт сохранён')}
+  persist('r_'+S.date,S.reports[S.date]); hapticOk(); toast('Отчёт создан');
+  S.cashView='view'; render(); window.scrollTo(0,0);
 }
-function cashText(){
-  const st=S.settings, dates=periodDates(), {rows,tot}=calcSplit(dates);
-  let t=`📊 Касса-отчёт · ${S.cashMode==='day'?human(S.date):monthName(S.date)}\n`;
+function reportText(dates,title,rep){
+  const st=S.settings, {rows,tot}=calcSplit(dates);
+  let t=`📊 Касса-отчёт · ${title}\n`;
   if(st.admin) t+=`Админ: ${st.admin}\n`;
   t+=`\nИгр: ${tot.games}\nВыручка: ${money(tot.revenue)}\n`;
   for(const r of rows) if(r.games) t+=`  • ${r.q.name}: ${r.games} — ${money(r.revenue)}${r.actors?` (актёры ${money(r.actors)})`:''}\n`;
   t+=`\nАктёры: ${money(tot.actors)}\nУправление: ${money(tot.mgSum)}\n`;
   tot.mgmt.forEach(m=>t+=`  • ${m.name} ${m.pct}%: ${money(m.sum)}\n`);
   t+=`${st.ownerName}: ${money(tot.owner)}\n`;
-  if(S.cashMode==='day'){
-    const {values,pin,pout,note}=readCash();
-    if(pin||pout){ t+=`\nКасса:\n`; [...st.payFields,...st.expenseFields].forEach(f=>{ if(values[f]!=null) t+=`  • ${f}: ${money(values[f])}\n`; }); t+=`Остаток в кассе: ${money(pin-pout)}\n`; }
-    if(note) t+=`\n📝 ${note}`;
+  if(rep){
+    const {pin,pout}=cashTotals(rep);
+    if(pin||pout){ t+=`\nКасса:\n`; [...st.payFields,...st.expenseFields].forEach(f=>{ if(rep.values[f]!=null) t+=`  • ${f}: ${money(rep.values[f])}\n`; }); t+=`Остаток в кассе: ${money(pin-pout)}\n`; }
+    if(rep.note) t+=`\n📝 ${rep.note}`;
   }
   return t.trim();
 }
-function shareCash(){
-  saveCash(true); const text=cashText();
+function share(text){
   if(tg&&tg.openTelegramLink) tg.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent('📊')+'&text='+encodeURIComponent(text));
   else { navigator.clipboard?.writeText(text); toast('Скопировано'); }
 }
@@ -462,7 +627,11 @@ function viewSettings(){
     <div class="muted">Считается от суммы после вычета актёров</div>
     ${st.mgmt.map((m,i)=>`<div class="two" style="grid-template-columns:1fr 90px"><div><label>Управление</label><input value="${esc(m.name)}" data-set="mgmt.${i}.name"></div><div><label>%</label><input type="number" inputmode="decimal" value="${m.pct}" data-set="mgmt.${i}.pct" data-num></div></div>`).join('')}
     <label>Остаток получает</label><input value="${esc(st.ownerName)}" data-set="ownerName"></div>
-  <h2>Время сеансов</h2><div class="card">${strList('slots','12:00')}</div>
+  <h2>Видео</h2><div class="card">
+    <div class="two"><div><label>Кто монтирует</label><input value="${esc(st.videoMaker)}" data-set="videoMaker"></div>
+    <div><label>Срок, дней</label><input type="number" inputmode="numeric" value="${st.videoDays}" data-set="videoDays" data-num></div></div></div>
+  <h2>Время сеансов</h2><div class="card">${strList('slots','12:00')}
+    <button class="btn soft" data-act="hourly">Каждый час 11:00–22:00</button></div>
   <h2>Способы оплаты</h2><div class="card">${strList('payFields','Наличные')}</div>
   <h2>Статьи расходов</h2><div class="card">${strList('expenseFields','Расходы')}</div>
   <h2>Прочее</h2><div class="card">
@@ -476,8 +645,9 @@ function setPath(path,val){ const p=path.split('.'); let o=S.settings; for(let i
 function saveSettings(){
   const st=S.settings;
   st.quests=st.quests.filter(q=>q.name.trim()); st.quests.forEach(q=>q.name=q.name.trim());
-  st.slots=st.slots.map(s=>s.trim()).filter(Boolean).sort();
+  st.slots=[...new Set(st.slots.map(s=>s.trim()).filter(Boolean))].sort();
   ['payFields','expenseFields'].forEach(k=>st[k]=st[k].map(s=>s.trim()).filter(Boolean));
+  st.videoDays=Math.max(1,+st.videoDays||3);
   persist('settings',st); if(S.quest!=='*'&&!st.quests.find(q=>q.name===S.quest)) S.quest='*';
   hapticOk(); toast('Настройки сохранены'); render();
 }
@@ -489,14 +659,15 @@ function openSheet(html){
   if(tg&&tg.BackButton){tg.BackButton.show();tg.BackButton.onClick(closeSheet)}
 }
 function closeSheet(){
-  $('sheet').classList.remove('open'); $('sheetBg').classList.remove('open'); editing=null;
+  $('sheet').classList.remove('open'); $('sheetBg').classList.remove('open'); editing=null; vEditing=null;
   if(tg&&tg.BackButton){tg.BackButton.hide();tg.BackButton.offClick(closeSheet)}
 }
 function confirmBox(text){ return new Promise(r=>{ if(tg&&tg.showConfirm&&tg.isVersionAtLeast('6.2')) tg.showConfirm(text,r); else r(confirm(text)); }); }
+function segOn(t){ t.parentNode.querySelectorAll('button,.chip').forEach(c=>c.classList.toggle('on',c===t)); haptic(); }
 
 /* ================= Обработчик нажатий (один на всё приложение) ================= */
 document.addEventListener('click',async e=>{
-  const t=e.target.closest('button,[data-open],.sheet-bg'); if(!t) return;
+  const t=e.target.closest('button,[data-open],[data-rep],.sheet-bg'); if(!t) return;
   const d=t.dataset;
   if(t.id==='sheetBg') return closeSheet();
   if(d.tab) return go(d.tab);
@@ -504,43 +675,74 @@ document.addEventListener('click',async e=>{
   if(d.q!==undefined){ S.quest=d.q; haptic(); return render(); }
   if(d.quick) return quickAdd(d.quick);
   if(d.open) { haptic(); return openBooking(d.open); }
-  if(d.cm){ S.cashMode=d.cm; haptic(); return render(); }
-  if(d.fq!==undefined){ editing.quest=d.fq; const q=quest(d.fq); $('f_price').value=q.price; previewPrice();
-    t.parentNode.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===t)); return haptic(); }
-  if(d.dt){ editing.discType=d.dt; t.parentNode.querySelectorAll('button').forEach(c=>c.classList.toggle('on',c===t)); previewPrice(); return haptic(); }
-  if(d.pay!==undefined){ editing.pay=d.pay; t.parentNode.querySelectorAll('button').forEach(c=>c.classList.toggle('on',c===t)); return haptic(); }
-  if(d.st){ editing.status=d.st; t.parentNode.querySelectorAll('button').forEach(c=>c.classList.toggle('on',c===t)); return haptic(); }
+  // бронь
+  if(d.fq!==undefined){ editing.quest=d.fq; $('f_price').value=quest(d.fq).price; previewPrice(); return segOn(t); }
+  if(d.ft) return setEditTime(d.ft);
+  if(d.dt){ editing.discType=d.dt; previewPrice(); return segOn(t); }
+  if(d.pay!==undefined){ editing.pay=d.pay; return segOn(t); }
+  if(d.st){ editing.status=d.st; return segOn(t); }
+  // касса
+  if(d.cv){ S.cashView=d.cv; haptic(); render(); return window.scrollTo(0,0); }
+  if(d.rep){ S.date=d.rep; S.cashView='view'; haptic(); renderDays(); render(); return window.scrollTo(0,0); }
+  if(d.mn){ const m=parseDate(S.month); m.setMonth(m.getMonth()+(+d.mn)); S.month=fmtDate(m).slice(0,7); haptic(); return render(); }
+  // видео
+  if(d.vdone){ const v=S.videos[d.vdone]; v.done=true; v.doneAt=Date.now(); saveVideo(v); hapticOk(); toast('Видео сдано'); return render(); }
+  if(d.vundo){ const v=S.videos[d.vundo]; v.done=false; saveVideo(v); return render(); }
+  if(d.vedit) return openVideo(d.vedit);
+  if(d.vq!==undefined){ vEditing.quest=d.vq; return segOn(t); }
+  if(d.vfrom){ const b=dayList(today()).find(x=>x.id===d.vfrom); Object.assign(vEditing,{team:b.name,quest:b.quest,time:b.time,bookingId:b.id,gameDate:today()});
+    $('v_team').value=b.name; $('v_quest').querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.vq===b.quest)); return segOn(t); }
+  // настройки
   if(d.del){ const p=d.del.split('.'); S.settings[p[0]].splice(+p[1],1); return render(); }
   if(d.add){ const k=d.add; if(k==='quests') S.settings.quests.push({name:'Новый квест',price:0,actors:0,color:QUEST_COLORS[S.settings.quests.length%QUEST_COLORS.length]}); else S.settings[k].push(''); return render(); }
   switch(d.act){
-    case 'new': haptic(); return openBooking(null);
+    case 'new': haptic(); return S.tab==='video'?openVideo(null):openBooking(null);
     case 'close': return closeSheet();
     case 'save': return saveBooking();
     case 'delete': return deleteBooking();
+    case 'customtime': return pickTime(quickAdd);
+    case 'ftcustom': return pickTime(setEditTime);
+    case 'buyvideo': { const b=collectBooking(); saveVideo(newVideo(b)); editing=null; closeSheet(); hapticOk(); toast('Видео добавлено в задачи'); return render(); }
     case 'pickdate': { const p=$('dpick'); p.value=S.date; try{p.showPicker()}catch(_){p.click()} return; }
-    case 'savecash': return saveCash();
-    case 'share': return shareCash();
+    case 'savecash': return createReport();
+    case 'share': return share(reportText([S.date],human(S.date),S.reports[S.date]));
+    case 'sharemonth': { const ds=Object.keys(S.reports).filter(x=>x.startsWith(S.month)); return share(reportText(ds,monthName(S.month))); }
+    case 'editrep': S.cashView='create'; renderDays(); render(); return window.scrollTo(0,0);
+    case 'delrep': if(await confirmBox('Удалить отчёт?')){ delete S.reports[S.date]; cloud.del('r_'+S.date); S.cashView='list'; render(); } return;
+    case 'vsave': return saveVideoForm();
+    case 'vdelete': if(await confirmBox('Удалить видео?')){ delete S.videos[vEditing.id]; cloud.del('v_'+vEditing.id); closeSheet(); render(); } return;
+    case 'toggledone': S.showDone=!S.showDone; return render();
+    case 'hourly': S.settings.slots=HOURLY.slice(); return render();
     case 'savesettings': return saveSettings();
     case 'resetsettings': if(await confirmBox('Сбросить настройки на стандартные?')){ S.settings=clone(DEFAULT_SETTINGS); persist('settings',S.settings); render(); } return;
   }
 });
 document.addEventListener('input',e=>{ const t=e.target; if(t.dataset.set!==undefined) setPath(t.dataset.set, t.dataset.num!==undefined?(+t.value||0):t.value); });
 $('dpick').addEventListener('change',e=>setDate(e.target.value));
+setInterval(()=>{ if(S.tab==='video' && !$('sheet').classList.contains('open')) render(); else updateVideoBadge(); },30000);
 
 /* ================= Старт: грузим всё одним пакетом ================= */
 (async function init(){
   renderDays(); render();
   const saved=await cloud.get('settings');
-  if(saved && saved.v===2) S.settings=Object.assign(clone(DEFAULT_SETTINGS),saved);
-  else if(saved && saved.admin) S.settings.admin=saved.admin;
-  const keys=(await cloud.keys()).filter(k=>/^[br]_\d{4}-\d{2}-\d{2}$/.test(k));
+  if(saved && saved.v>=2){
+    S.settings=Object.assign(clone(DEFAULT_SETTINGS),saved);
+    if(saved.v<3){ S.settings.slots=HOURLY.slice(); S.settings.v=3; persist('settings',S.settings); }
+  } else if(saved && saved.admin) S.settings.admin=saved.admin;
+  const keys=(await cloud.keys()).filter(k=>/^([br]_\d{4}-\d{2}-\d{2}(_\d+)?|v_\w+)$/.test(k));
   const data={};
   for(let i=0;i<keys.length;i+=50) Object.assign(data, await cloud.getMany(keys.slice(i,i+50)));
-  for(const k in data){
-    const d=k.slice(2);
-    if(k[0]==='b') S.bookings[d]=(data[k]||[]).map(b=>({status:'new',discount:0,discType:'sum',...b,quest:b.quest||b.room||S.settings.quests[0].name}));
-    else S.reports[d]=data[k];
+  const dayBuckets={};
+  for(const k of Object.keys(data).sort()){
+    if(k[0]==='v'){ S.videos[data[k].id]=data[k]; continue; }
+    const d=k.slice(2,12);
+    if(k[0]==='r'){ S.reports[d]=data[k]; continue; }
+    const idx=+(k.split('_')[2]||0); chunkCount[d]=Math.max(chunkCount[d]||1,idx+1);
+    (dayBuckets[d]=dayBuckets[d]||[]).push(...(data[k]||[]));
   }
+  for(const d in dayBuckets) S.bookings[d]=dayBuckets[d].map(b=>({status:'new',discount:0,discType:'sum',...b,quest:b.quest||b.room||S.settings.quests[0].name}));
+  // сданные видео старше 30 дней удаляем, чтобы не занимать место
+  for(const v of Object.values(S.videos)) if(v.done && Date.now()-v.doneAt>30*24*H){ delete S.videos[v.id]; cloud.del('v_'+v.id); }
   $('sync').innerHTML=useCloud?ic('cloud','s')+' облако':'';
   renderDays(); render();
 })();
