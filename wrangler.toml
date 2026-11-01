@@ -1,0 +1,17 @@
+name = "app"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+account_id = "8965895f290c17ff90f6ddf67c77ead9"
+workers_dev = true
+
+[assets]
+directory = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "questhouse"
+database_id = "1dcfe9d1-438c-4e73-8763-32670bfd23e4"
+
+# Каждые 30 минут проверяем сроки видео и шлём напоминания
+[triggers]
+crons = ["*/30 * * * *"]

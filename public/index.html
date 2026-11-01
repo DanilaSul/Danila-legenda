@@ -181,32 +181,22 @@ if (tg) { tg.ready(); tg.expand(); try{ tg.setHeaderColor('secondary_bg_color');
 const $ = id => document.getElementById(id);
 const ic = (n,c='') => `<svg class="i ${c}"><use href="#i-${n}"/></svg>`;
 
-/* ================= Хранилище =================
-   Всё держим в памяти, рисуем мгновенно, а в облако Telegram сохраняем в фоне. */
-const useCloud = !!(tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9'));
-const cloud = {
-  get:k=>new Promise(r=>{ if(useCloud) tg.CloudStorage.getItem(k,(e,v)=>r(e||!v?null:JSON.parse(v))); else { try{const v=localStorage.getItem(k);r(v?JSON.parse(v):null)}catch(_){r(null)} } }),
-  getMany:keys=>new Promise(r=>{ if(!keys.length) return r({});
-    if(useCloud) tg.CloudStorage.getItems(keys,(e,v)=>{ const o={}; if(!e&&v) for(const k in v) if(v[k]) try{o[k]=JSON.parse(v[k])}catch(_){} r(o); });
-    else { const o={}; keys.forEach(k=>{try{const v=localStorage.getItem(k); if(v) o[k]=JSON.parse(v)}catch(_){}}); r(o); } }),
-  set:(k,v)=>new Promise(r=>{ const s=JSON.stringify(v); if(useCloud) tg.CloudStorage.setItem(k,s,e=>{ if(e) toast('Ошибка сохранения','x'); r(!e)}); else { try{localStorage.setItem(k,s)}catch(_){} r(true)} }),
-  del:k=>new Promise(r=>{ if(useCloud) tg.CloudStorage.removeItem(k,()=>r()); else { try{localStorage.removeItem(k)}catch(_){} r(); } }),
-  keys:()=>new Promise(r=>{ if(useCloud) tg.CloudStorage.getKeys((e,k)=>r(e?[]:k)); else { try{r(Object.keys(localStorage))}catch(_){r([])} } })
-};
-const pending={};
-function persist(k,v){ clearTimeout(pending[k]); pending[k]=setTimeout(()=>cloud.set(k,v),250); }
-// Брони дня сохраняем кусками (в облаке Telegram лимит 4 КБ на одну запись)
-const chunkCount={};
-function saveDay(d){
-  clearTimeout(pending['b_'+d]);
-  pending['b_'+d]=setTimeout(()=>{
-    const list=S.bookings[d]||[], chunks=[[]]; let size=2;
-    for(const b of list){ const l=JSON.stringify(b).length+1; if(size+l>3900&&chunks[chunks.length-1].length){chunks.push([]);size=2} chunks[chunks.length-1].push(b); size+=l; }
-    chunks.forEach((c,i)=>cloud.set(i?`b_${d}_${i}`:`b_${d}`,c));
-    for(let i=chunks.length;i<(chunkCount[d]||1);i++) cloud.del(`b_${d}_${i}`);
-    chunkCount[d]=chunks.length;
-  },250);
+/* ================= Сервер (общая база) =================
+   Всё держим в памяти и рисуем мгновенно, а на сервер отправляем в фоне. */
+const INIT = tg ? tg.initData : '';
+async function api(method,path,body){
+  try{
+    const r=await fetch('/api/'+path,{method,headers:{'authorization':'tma '+INIT,'content-type':'application/json'},body:body?JSON.stringify(body):undefined});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok && method!=='GET'){ toast(r.status===403?'Нет прав':'Ошибка сохранения','x'); setSync('err'); }
+    else if(method!=='GET') setSync('ok');
+    return {ok:r.ok,status:r.status,data:j};
+  }catch(e){ if(method!=='GET'){toast('Нет связи, повторю','x'); setSync('err'); retryQ.push([method,path,body]);} return {ok:false,status:0,data:{}}; }
 }
+const retryQ=[];
+setInterval(async()=>{ if(!retryQ.length) return; const q=retryQ.splice(0); for(const c of q) await api(...c); },10000);
+function setSync(st){ const el=$('sync'); if(!el) return; el.innerHTML=st==='err'?`<span style="color:var(--danger)">${ic('cloud','s')} нет связи</span>`:ic('cloud','s')+' синхр.'; }
+const putBooking=b=>{ b.date=b.date||S.date; return api('PUT','booking',b); };
 
 /* ================= Настройки по умолчанию ================= */
 const QUEST_COLORS=['#e5484d','#e8a01a','#8e4ec6','#22a861','#3478f6','#0fa3b1'];
@@ -334,7 +324,7 @@ function newBooking(time,qname){
   return {id:uid(),created:Date.now(),time:time||S.settings.slots[0],quest:q.name,name:'',phone:'',guests:S.settings.defaultGuests,price:q.price,discount:0,discType:'sum',prepay:0,pay:'',status:'new',comment:''};
 }
 function quickAdd(time){
-  const b=newBooking(time,S.quest); dayList(S.date).push(b); saveDay(S.date);
+  const b=newBooking(time,S.quest); b.date=S.date; dayList(S.date).push(b); putBooking(b);
   hapticOk(); toast(`Бронь на ${time} создана`); renderDays(); render(); openBooking(b.id);
 }
 function pickTime(cb){
@@ -395,12 +385,12 @@ function collectBooking(){
   const isNew=b._new; delete b._new;
   const list=dayList(S.date);
   if(isNew) list.push(b); else { const i=list.findIndex(x=>x.id===b.id); if(i>=0) list[i]=b; }
-  saveDay(S.date); return b;
+  b.date=S.date; putBooking(b); return b;
 }
 function saveBooking(){ collectBooking(); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render(); }
 async function deleteBooking(){
   if(!(await confirmBox('Удалить бронь?'))) return;
-  S.bookings[S.date]=dayList(S.date).filter(x=>x.id!==editing.id); saveDay(S.date);
+  S.bookings[S.date]=dayList(S.date).filter(x=>x.id!==editing.id); api('DELETE','booking/'+editing.id);
   editing=null; closeSheet(); toast('Удалено','trash'); renderDays(); render();
 }
 
@@ -442,7 +432,7 @@ function viewVideos(){
   }
   return h;
 }
-function saveVideo(v){ S.videos[v.id]=v; persist('v_'+v.id,v); }
+function saveVideo(v){ S.videos[v.id]=v; api('PUT','video',v); }
 function newVideo(fromBooking){
   const now=Date.now(), b=fromBooking;
   return {id:uid(),team:b?b.name:'',quest:b?b.quest:S.settings.quests[0].name,gameDate:S.date,time:b?b.time:'',bookingId:b?b.id:null,
@@ -586,7 +576,7 @@ function calcCash(){
 }
 function createReport(){
   const {values,note}=readCash(); S.reports[S.date]={values,note,saved:Date.now()};
-  persist('r_'+S.date,S.reports[S.date]); hapticOk(); toast('Отчёт создан');
+  api('PUT','report/'+S.date,S.reports[S.date]); hapticOk(); toast('Отчёт создан');
   S.cashView='view'; render(); window.scrollTo(0,0);
 }
 function reportText(dates,title,rep){
@@ -615,7 +605,8 @@ function viewSettings(){
   const st=S.settings;
   const strList=(key,ph)=>st[key].map((v,i)=>`<div class="list-item"><input value="${esc(v)}" placeholder="${ph}" data-set="${key}.${i}"><button class="del" data-del="${key}.${i}">${ic('trash','s')}</button></div>`).join('')+
     `<button class="btn soft" style="margin-top:0" data-add="${key}">${ic('plus','s')} Добавить</button>`;
-  return `
+  if(S.me&&S.me.role==='owner') setTimeout(loadUsers);
+  return `${S.me&&S.me.role==='owner'?`<h2>Сотрудники</h2><div class="card" id="usersBox"><div class="muted">Загрузка…</div></div>`:''}
   <h2>Квесты</h2><div class="card">
     ${st.quests.map((q,i)=>`<div class="qset">
       <div class="row" style="margin-top:8px"><span class="dot" style="background:${q.color};width:14px;height:14px"></span><input value="${esc(q.name)}" data-set="quests.${i}.name" style="font-weight:600"><button class="del" data-del="quests.${i}">${ic('trash','s')}</button></div>
@@ -639,7 +630,21 @@ function viewSettings(){
     <label>Администратор (в отчёте)</label><input value="${esc(st.admin)}" data-set="admin" placeholder="Имя"></div>
   <button class="btn" data-act="savesettings">${ic('save','s')} Сохранить настройки</button>
   <button class="btn danger" data-act="resetsettings">Сбросить на стандартные</button>
-  <div class="muted" style="text-align:center;margin:14px 0;display:flex;gap:6px;justify-content:center;align-items:center">${ic('cloud','s')} ${useCloud?'Данные в облаке Telegram':'Данные в браузере'}</div>`;
+  <div class="muted" style="text-align:center;margin:14px 0;display:flex;gap:6px;justify-content:center;align-items:center">${ic('cloud','s')} Общая база на сервере</div>`;
+}
+const ROLES={owner:'Владелец',admin:'Админ',video:'Монтаж'};
+async function loadUsers(){
+  const r=await api('GET','users'); const box=$('usersBox'); if(!box||!r.ok) return;
+  const us=r.data.users;
+  box.innerHTML=`<div class="muted" style="margin-bottom:6px">Сотрудник открывает бота → «Открыть» → появляется здесь. <b>Админ</b> — всё, <b>Монтаж</b> — только видео и напоминания.</div>`+
+  us.map(u=>{
+    const me=u.tg_id===S.me.tg_id, pend=u.status!=='approved';
+    return `<div style="padding:10px 0;border-top:1px solid var(--line)">
+      <div class="row"><div class="grow"><b>${esc(u.name||'Без имени')}</b>${u.username?` <span class="muted">@${esc(u.username)}</span>`:''}
+        <div class="muted">${me?'это вы · ':''}${pend?'<span style="color:var(--warn)">ждёт доступа</span>':ROLES[u.role]}</div></div>
+        ${me?'':`<button class="del" data-udel="${u.tg_id}">${ic('trash','s')}</button>`}</div>
+      ${me?'':`<div class="seg" style="margin-top:8px">${['admin','video'].map(r=>`<button data-urole="${u.tg_id}:${r}" class="${!pend&&u.role===r?'on':''}">${pend?'Дать: ':''}${ROLES[r]}</button>`).join('')}</div>`}
+    </div>`;}).join('');
 }
 function setPath(path,val){ const p=path.split('.'); let o=S.settings; for(let i=0;i<p.length-1;i++) o=o[p[i]]; o[p[p.length-1]]=val; }
 function saveSettings(){
@@ -648,7 +653,7 @@ function saveSettings(){
   st.slots=[...new Set(st.slots.map(s=>s.trim()).filter(Boolean))].sort();
   ['payFields','expenseFields'].forEach(k=>st[k]=st[k].map(s=>s.trim()).filter(Boolean));
   st.videoDays=Math.max(1,+st.videoDays||3);
-  persist('settings',st); if(S.quest!=='*'&&!st.quests.find(q=>q.name===S.quest)) S.quest='*';
+  api('PUT','settings',st); if(S.quest!=='*'&&!st.quests.find(q=>q.name===S.quest)) S.quest='*';
   hapticOk(); toast('Настройки сохранены'); render();
 }
 
@@ -692,6 +697,8 @@ document.addEventListener('click',async e=>{
   if(d.vq!==undefined){ vEditing.quest=d.vq; return segOn(t); }
   if(d.vfrom){ const b=dayList(today()).find(x=>x.id===d.vfrom); Object.assign(vEditing,{team:b.name,quest:b.quest,time:b.time,bookingId:b.id,gameDate:today()});
     $('v_team').value=b.name; $('v_quest').querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.vq===b.quest)); return segOn(t); }
+  if(d.urole){ const [id,role]=d.urole.split(':'); await api('PUT','users/'+id,{role,status:'approved'}); hapticOk(); toast('Доступ открыт'); return loadUsers(); }
+  if(d.udel){ if(await confirmBox('Убрать сотрудника?')){ await api('DELETE','users/'+d.udel); loadUsers(); } return; }
   // настройки
   if(d.del){ const p=d.del.split('.'); S.settings[p[0]].splice(+p[1],1); return render(); }
   if(d.add){ const k=d.add; if(k==='quests') S.settings.quests.push({name:'Новый квест',price:0,actors:0,color:QUEST_COLORS[S.settings.quests.length%QUEST_COLORS.length]}); else S.settings[k].push(''); return render(); }
@@ -708,43 +715,63 @@ document.addEventListener('click',async e=>{
     case 'share': return share(reportText([S.date],human(S.date),S.reports[S.date]));
     case 'sharemonth': { const ds=Object.keys(S.reports).filter(x=>x.startsWith(S.month)); return share(reportText(ds,monthName(S.month))); }
     case 'editrep': S.cashView='create'; renderDays(); render(); return window.scrollTo(0,0);
-    case 'delrep': if(await confirmBox('Удалить отчёт?')){ delete S.reports[S.date]; cloud.del('r_'+S.date); S.cashView='list'; render(); } return;
+    case 'delrep': if(await confirmBox('Удалить отчёт?')){ delete S.reports[S.date]; api('DELETE','report/'+S.date); S.cashView='list'; render(); } return;
     case 'vsave': return saveVideoForm();
-    case 'vdelete': if(await confirmBox('Удалить видео?')){ delete S.videos[vEditing.id]; cloud.del('v_'+vEditing.id); closeSheet(); render(); } return;
+    case 'vdelete': if(await confirmBox('Удалить видео?')){ delete S.videos[vEditing.id]; api('DELETE','video/'+vEditing.id); closeSheet(); render(); } return;
     case 'toggledone': S.showDone=!S.showDone; return render();
     case 'hourly': S.settings.slots=HOURLY.slice(); return render();
     case 'savesettings': return saveSettings();
-    case 'resetsettings': if(await confirmBox('Сбросить настройки на стандартные?')){ S.settings=clone(DEFAULT_SETTINGS); persist('settings',S.settings); render(); } return;
+    case 'resetsettings': if(await confirmBox('Сбросить настройки на стандартные?')){ S.settings=clone(DEFAULT_SETTINGS); api('PUT','settings',S.settings); render(); } return;
   }
 });
 document.addEventListener('input',e=>{ const t=e.target; if(t.dataset.set!==undefined) setPath(t.dataset.set, t.dataset.num!==undefined?(+t.value||0):t.value); });
 $('dpick').addEventListener('change',e=>setDate(e.target.value));
 setInterval(()=>{ if(S.tab==='video' && !$('sheet').classList.contains('open')) render(); else updateVideoBadge(); },30000);
 
-/* ================= Старт: грузим всё одним пакетом ================= */
-(async function init(){
-  renderDays(); render();
-  const saved=await cloud.get('settings');
-  if(saved && saved.v>=2){
-    S.settings=Object.assign(clone(DEFAULT_SETTINGS),saved);
-    if(saved.v<3){ S.settings.slots=HOURLY.slice(); S.settings.v=3; persist('settings',S.settings); }
-  } else if(saved && saved.admin) S.settings.admin=saved.admin;
-  const keys=(await cloud.keys()).filter(k=>/^([br]_\d{4}-\d{2}-\d{2}(_\d+)?|v_\w+)$/.test(k));
-  const data={};
-  for(let i=0;i<keys.length;i+=50) Object.assign(data, await cloud.getMany(keys.slice(i,i+50)));
-  const dayBuckets={};
-  for(const k of Object.keys(data).sort()){
-    if(k[0]==='v'){ S.videos[data[k].id]=data[k]; continue; }
-    const d=k.slice(2,12);
-    if(k[0]==='r'){ S.reports[d]=data[k]; continue; }
-    const idx=+(k.split('_')[2]||0); chunkCount[d]=Math.max(chunkCount[d]||1,idx+1);
-    (dayBuckets[d]=dayBuckets[d]||[]).push(...(data[k]||[]));
+/* ================= Старт ================= */
+let lastSync=0;
+function merge(d){
+  let changed=false;
+  if(d.settings){ S.settings=Object.assign(clone(DEFAULT_SETTINGS),d.settings); changed=true; }
+  for(const b of d.bookings||[]){
+    changed=true;
+    for(const k in S.bookings){ const i=S.bookings[k].findIndex(x=>x.id===b.id); if(i>=0) S.bookings[k].splice(i,1); }
+    if(!b._deleted){ delete b._deleted; dayList(b.date).push({status:'new',discount:0,discType:'sum',...b}); }
   }
-  for(const d in dayBuckets) S.bookings[d]=dayBuckets[d].map(b=>({status:'new',discount:0,discType:'sum',...b,quest:b.quest||b.room||S.settings.quests[0].name}));
-  // сданные видео старше 30 дней удаляем, чтобы не занимать место
-  for(const v of Object.values(S.videos)) if(v.done && Date.now()-v.doneAt>30*24*H){ delete S.videos[v.id]; cloud.del('v_'+v.id); }
-  $('sync').innerHTML=useCloud?ic('cloud','s')+' облако':'';
-  renderDays(); render();
+  for(const r of d.reports||[]){ changed=true; if(r._deleted) delete S.reports[r.date]; else { const {date,_deleted,...rest}=r; S.reports[date]=rest; } }
+  for(const v of d.videos||[]){ changed=true; if(v._deleted) delete S.videos[v.id]; else { delete v._deleted; S.videos[v.id]=v; } }
+  if(d.t) lastSync=d.t;
+  return changed;
+}
+function busy(){ return $('sheet').classList.contains('open') || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)); }
+async function sync(){
+  if(!S.me) return;
+  const r=await api('GET','data?since='+lastSync);
+  if(!r.ok){ setSync('err'); return; }
+  setSync('ok');
+  if(merge(r.data) && !busy()){ renderDays(); render(); }
+}
+function gate(html){ $('days').style.display='none'; $('fab').style.display='none'; document.querySelector('nav').style.display='none'; $('title').textContent='QuestHouse'; $('view').innerHTML=`<div class="view"><div class="card" style="text-align:center;padding:28px 18px">${html}</div></div>`; }
+function applyRole(){
+  const role=S.me.role;
+  document.querySelector('nav').style.display='flex';
+  document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(role==='video'&&b.dataset.tab!=='video')?'none':''; });
+  if(role==='video'){ S.tab='video'; document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab==='video')); }
+}
+(async function init(){
+  if(!INIT){ return gate(`${ic('cal')}<h3>Откройте через Telegram</h3><div class="muted">Приложение работает внутри бота @QuestHouseBookingBot</div>`); }
+  $('view').innerHTML='<div class="empty">Загрузка…</div>';
+  const me=await api('GET','me');
+  if(!me.ok){ return gate(`<h3>Нет связи с сервером</h3><div class="muted">Попробуйте открыть позже</div>`); }
+  S.me=me.data.user;
+  if(S.me.status!=='approved'){
+    return gate(`${ic('users')}<h3>Ждём подтверждения</h3><div class="muted">Владелец получил запрос и должен открыть вам доступ.<br>Ваш ID: <b>${S.me.tg_id}</b></div><button class="btn" onclick="location.reload()">Проверить ещё раз</button>`);
+  }
+  const r=await api('GET','data?since=0'); merge(r.data);
+  if(!r.data.settings && S.me.role==='owner') api('PUT','settings',S.settings);
+  setSync('ok'); applyRole(); renderDays(); render();
+  setInterval(sync,15000);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) sync(); });
 })();
 </script>
 </body>
