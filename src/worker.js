@@ -172,6 +172,12 @@ async function api(req, env, path) {
     if (m === 'POST' && parts[2] === 'send') { const r = await sendPayroll(env, parts[1]); return json({ ok: true, ...r }); }
   }
 
+  if (parts[0] === 'scan') { // поиск пропущенных броней в архиве чатов
+    if (!(isOwner(u) || (approved(u) && u.role === 'manager'))) return json({ error: 'forbidden' }, 403);
+    if (m === 'POST' && parts[1] === 'skip') { await db.prepare('INSERT OR IGNORE INTO scan_skip (k, at) VALUES (?,?)').bind(String(body.key), now()).run(); return json({ ok: true }); }
+    if (m === 'POST') return json(await scanChats(env));
+  }
+
   if (parts[0] === 'request') {
     if (!isOwner(u)) return json({ error: 'forbidden' }, 403);
     const r = await db.prepare('SELECT * FROM requests WHERE id=?').bind(parts[1]).first();
@@ -389,6 +395,9 @@ async function onBusinessMessage(env, msg, origin) {
   if (msg.chat && msg.from && msg.chat.id !== msg.from.id) return;
   const text = (msg.text || msg.caption || '').trim(); if (!text) return;
   if ((msg.date || 0) * 1000 < REQUESTS_FROM_MS) return; // сообщение отправлено до начала работы
+  // архив сообщений клиентов — для кнопки «Поиск»
+  await env.DB.prepare('INSERT INTO msglog (chat_id,msg_id,username,name,text,date) VALUES (?,?,?,?,?,?)')
+    .bind(msg.chat.id, msg.message_id || 0, (msg.from && msg.from.username) || '', [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' '), text.slice(0, 4000), (msg.date || 0) * 1000 || now()).run();
   const st = await getSettings(env), t = now();
   const opt = { today: tashDate(t), quests: st.quests || [] };
   const extra = { username: msg.from && msg.from.username, client_id: msg.from && msg.from.id, client_name: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') };
@@ -441,6 +450,37 @@ async function onCallback(env, cq, origin) {
   await closeRequest(env, id, 'confirmed', `✅ Подтверждено (${escH(u.name)}) — бронь добавлена`, b.id);
   await bookingNotify(env, b, null, 0);
   return answer('Бронь добавлена и отправлена в группу');
+}
+
+/* ---------- Поиск броней в архиве чатов ---------- */
+async function scanChats(env) {
+  const st = await getSettings(env), db = env.DB;
+  const rows = (await db.prepare('SELECT chat_id, msg_id, username, name, text, date FROM msglog WHERE date>=? ORDER BY chat_id, date').bind(REQUESTS_FROM_MS).all()).results;
+  const skip = new Set((await db.prepare('SELECT k FROM scan_skip').all()).results.map(r => r.k));
+  const reqs = (await db.prepare('SELECT chat_id, created, fields, status FROM requests').all()).results;
+  const bookings = (await db.prepare('SELECT data FROM bookings WHERE deleted=0 AND date>=?').bind(REQUESTS_FROM).all()).results.map(r => JSON.parse(r.data));
+  // разбиваем переписку каждого клиента на «сессии» (перерыв больше 6 часов — новая)
+  const sessions = [];
+  for (const r of rows) {
+    const last = sessions[sessions.length - 1];
+    if (last && last.chat_id === r.chat_id && r.date - last.end < 6 * H) { last.text += '\n' + r.text; last.end = r.date; }
+    else sessions.push({ chat_id: r.chat_id, start: r.date, end: r.date, text: r.text, username: r.username, name: r.name, key: `${r.chat_id}:${r.date}` });
+  }
+  const digits = p => String(p || '').replace(/\D/g, '').slice(-9);
+  const found = [];
+  for (const ses of sessions) {
+    if (skip.has(ses.key)) continue;
+    const p = parseBooking(ses.text, { today: tashDate(ses.start), quests: st.quests || [] });
+    if (!p.isBooking) continue;
+    const f = { ...p.fields }; if (!f.name && ses.name) f.name = ses.name;
+    if (f.date && f.date < REQUESTS_FROM) continue;
+    // уже есть заявка из этого чата в это время или такая бронь — пропускаем
+    if (reqs.some(q => q.chat_id === ses.chat_id && q.created >= ses.start - H && q.created <= ses.end + 6 * H && q.status !== 'rejected')) continue;
+    if (bookings.some(b => (f.phone && digits(b.phone) === digits(f.phone) && (!f.date || b.date === f.date)) ||
+      (f.date && f.time && f.quest && b.date === f.date && b.time === f.time && b.quest === f.quest))) continue;
+    found.push({ key: ses.key, at: ses.start, username: ses.username, fields: f, text: ses.text.slice(-1500) });
+  }
+  return { found: found.reverse(), scanned: sessions.length, messages: rows.length, since: REQUESTS_FROM };
 }
 
 /* ---------- Ведомость сотрудников ---------- */

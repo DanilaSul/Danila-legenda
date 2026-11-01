@@ -17,3 +17,6 @@ CREATE INDEX IF NOT EXISTS requests_chat ON requests(chat_id, status);
 CREATE TABLE IF NOT EXISTS chatbuf (chat_id INTEGER PRIMARY KEY, text TEXT, updated INTEGER);
 CREATE TABLE IF NOT EXISTS pay (date TEXT, emp TEXT, amount INTEGER, PRIMARY KEY (date, emp));
 CREATE TABLE IF NOT EXISTS contacts (tg_id INTEGER PRIMARY KEY, username TEXT, name TEXT, updated INTEGER);
+CREATE TABLE IF NOT EXISTS msglog (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, msg_id INTEGER, username TEXT, name TEXT, text TEXT, date INTEGER);
+CREATE INDEX IF NOT EXISTS msglog_date ON msglog(date);
+CREATE TABLE IF NOT EXISTS scan_skip (k TEXT PRIMARY KEY, at INTEGER);

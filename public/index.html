@@ -198,7 +198,7 @@ const retryQ=[];
 setInterval(async()=>{ if(!retryQ.length) return; const q=retryQ.splice(0); for(const c of q) await api(...c); },10000);
 function setSync(st){ const el=$('sync'); if(!el) return; el.innerHTML=st==='err'?`<span style="color:var(--danger)">${ic('cloud','s')} нет связи</span>`:ic('cloud','s')+' синхр.'; }
 const can={cashEdit:false,videoDone:false,settings:false};
-function setPerms(u){ const own=u.role==='owner'; can.cashEdit=true; can.videoDone=own||u.role==='video'||u.role==='manager'; can.settings=own; can.payroll=own; }
+function setPerms(u){ const own=u.role==='owner'; can.cashEdit=true; can.videoDone=own||u.role==='video'||u.role==='manager'; can.settings=own; can.payroll=own; can.scan=own||u.role==='manager'; }
 const putBooking=b=>{ b.date=b.date||S.date; return api('PUT','booking',b); };
 
 /* ================= Настройки по умолчанию ================= */
@@ -297,6 +297,7 @@ function viewBookings(){
         <div class="muted ell">${esc(r.quest||'квест?')} · ${r.date?parseDate(r.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'}):'дата?'} · ${esc(r.time||'время?')}${r.guestsText||r.guests?' · '+esc(r.guestsText||r.guests)+' чел.':''}</div></div>
         <span class="badge b-disc">проверить</span></div>`;}).join('');
   }
+  if(can.scan) h+=`<button class="btn soft" style="margin:0 0 10px;padding:11px" data-act="scan">${ic('list','s')} Поиск броней по чатам</button>`;
   h+=`<div class="chips"><button class="chip ${S.quest==='*'?'on':''}" data-q="*">Все</button>`+
     st.quests.map(q=>`<button class="chip ${S.quest===q.name?'on':''}" data-q="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')+`</div>`;
   if(S.quest!=='*'){
@@ -394,7 +395,7 @@ function collectBooking(){
   const b=editing, g=k=>$('f_'+k).value.trim();
   const date=g('date'); if(!date){ toast('Укажи дату','x'); return null; }
   Object.assign(b,{name:g('name'),phone:g('phone'),guests:+g('guests')||0,discount:+g('discount')||0,prepay:+g('prepay')||0,comment:g('comment')});
-  const isNew=b._new; delete b._new; delete b._noDate; delete b.price;
+  const isNew=b._new; delete b._new; delete b._noDate; delete b.price; delete b.scanKey;
   for(const d in S.bookings){ const i=S.bookings[d].findIndex(x=>x.id===b.id); if(i>=0) S.bookings[d].splice(i,1); }
   b.date=date; dayList(date).push(b);
   if(date!==S.date){ S.date=date; }
@@ -407,7 +408,28 @@ function openRequest(id){
     guests:r.guests||S.settings.defaultGuests,status:'ok',source:'tg',requestId:r.id,_noDate:!r.date,
     comment:[r.guestsText?r.guestsText+' чел.':'','из Telegram'].filter(Boolean).join(' · ')});
 }
-function saveBooking(){ const rid=editing&&editing.requestId; if(!collectBooking()) return; if(rid) S.requests=(S.requests||[]).filter(x=>x.id!==rid); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render(); }
+let SCAN=null;
+async function runScan(){
+  openSheet(`<div class="sh-head"><h3>Поиск по чатам</h3><button class="x" data-act="close">${ic('x','s')}</button></div><div class="empty">Ищу брони в переписке с 2 ноября…</div>`);
+  const r=await api('POST','scan'); if(!r.ok){ $('sheet').querySelector('.empty').textContent='Не получилось, попробуй ещё раз'; return; }
+  SCAN=r.data; renderScan();
+}
+function renderScan(){
+  const f=SCAN.found;
+  let h=`<div class="sh-head"><h3>Поиск по чатам</h3><button class="x" data-act="close">${ic('x','s')}</button></div>
+    <div class="muted">Проверено сообщений: ${SCAN.messages}, переписок: ${SCAN.scanned} · с 2 ноября</div>`;
+  if(!f.length) h+=`<div class="empty">${ic('check')}<div style="margin-top:6px">Пропущенных броней не найдено</div><div class="muted">Всё, что похоже на брони, уже есть в приложении</div></div>`;
+  else h+=`<h2>Похоже на бронь · ${f.length}</h2>`+f.map((x,i)=>{ const q=x.fields, c=quest(q.quest||'');
+    return `<div class="card" style="background:var(--bg2)">
+      <div class="row"><span class="dot" style="background:${q.quest?c.color:'var(--warn)'}"></span><b class="grow">${esc(q.name||'Без имени')}</b><span class="muted">${new Date(x.at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</span></div>
+      <div class="muted" style="margin-top:4px">${esc(q.quest||'квест?')} · ${q.date?parseDate(q.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'}):'дата?'} · ${esc(q.time||'время?')}${q.guests?' · '+esc(q.guestsText||q.guests)+' чел.':''}${q.phone?' · '+esc(q.phone):''}${x.username?' · @'+esc(x.username):''}</div>
+      <details style="margin-top:6px"><summary class="muted">Переписка</summary><div class="muted" style="white-space:pre-wrap;margin-top:4px;font-size:13px">${esc(x.text)}</div></details>
+      <div class="two"><button class="btn" style="padding:11px" data-scanadd="${i}">${ic('plus','s')} Добавить</button><button class="btn soft" style="padding:11px;color:var(--danger)" data-scanskip="${i}">Не бронь</button></div></div>`; }).join('');
+  $('sheet').innerHTML='<div class="grab"></div>'+h;
+}
+function saveBooking(){ const sk=editing&&editing.scanKey;
+  const rid=editing&&editing.requestId; if(!collectBooking()) return;
+  if(sk){ api('POST','scan/skip',{key:sk}); if(SCAN) SCAN.found=SCAN.found.filter(x=>x.key!==sk); } if(rid) S.requests=(S.requests||[]).filter(x=>x.id!==rid); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render(); }
 async function deleteBooking(){
   if(!(await confirmBox('Удалить бронь?'))) return;
   S.bookings[S.date]=dayList(S.date).filter(x=>x.id!==editing.id); api('DELETE','booking/'+editing.id);
@@ -796,6 +818,10 @@ document.addEventListener('click',async e=>{
     $('v_team').value=b.name; $('v_quest').querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.vq===b.quest)); return segOn(t); }
   if(d.urole){ const [id,role]=d.urole.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{role,status:'approved'}); hapticOk(); toast('Доступ открыт'); return loadUsers(); }
   if(d.tgl){ const [k,v]=d.tgl.split(':'); S.settings[k]=v==='1'; segOn(t); return; }
+  if(d.scanskip!==undefined){ const x=SCAN.found[+d.scanskip]; api('POST','scan/skip',{key:x.key}); SCAN.found.splice(+d.scanskip,1); haptic(); return renderScan(); }
+  if(d.scanadd!==undefined){ const x=SCAN.found[+d.scanadd], q=x.fields; closeSheet(); if(q.date){ S.date=q.date; renderDays(); render(); }
+    setTimeout(()=>openBooking(null,{time:q.time||S.settings.slots[0],quest:q.quest||S.settings.quests[0].name,name:q.name||'',phone:q.phone||'',guests:q.guests||S.settings.defaultGuests,
+      status:'ok',source:'tg',scanKey:x.key,_noDate:!q.date,comment:[q.guestsText?q.guestsText+' чел.':'','из Telegram'].filter(Boolean).join(' · ')}),300); return; }
   if(d.pdel!==undefined){ PAY.staff.list.splice(+d.pdel,1); return render(); }
   if(d.pauto!==undefined){ PAY.staff.auto=d.pauto==='1'; return segOn(t); }
   if(d.ucash){ const [id,v]=d.ucash.split(':'); t.style.opacity=.5; await api('PUT','users/'+id,{cash_edit:+v}); hapticOk(); return loadUsers(); }
@@ -832,6 +858,7 @@ document.addEventListener('click',async e=>{
     case 'padd': PAY.staff.list.push({id:uid(),name:'',username:'',link:''}); return render();
     case 'paystaff': { PAY.staff.list=PAY.staff.list.filter(e=>e.name.trim()); PAY.staff.list.forEach(e=>e.username=e.username.trim().replace(/^@/,''));
       const r=await api('PUT','payroll/staff',{list:PAY.staff.list,time:PAY.staff.time,auto:PAY.staff.auto}); if(r.ok){ hapticOk(); toast('Сохранено'); payEdit=false; await loadPay(true); render(); } return; }
+    case 'scan': return runScan();
     case 'vsave': return saveVideoForm();
     case 'vdelete': if(await confirmBox('Удалить видео?')){ delete S.videos[vEditing.id]; api('DELETE','video/'+vEditing.id); closeSheet(); render(); } return;
     case 'toggledone': S.showDone=!S.showDone; return render();
