@@ -232,7 +232,7 @@ function humanDate(ds) { const [y, m, d] = ds.split('-').map(Number); const dt =
 const money = n => String(Math.round(+n || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' сум';
 const tashDate = (ms = now()) => new Date(ms + 5 * H).toISOString().slice(0, 10);
 // Тариф: фикс за 4 человек + доплата за каждого следующего (из настроек квеста)
-const DEF_TARIFF = { 'Hell House 2': [800000, 200000], 'Катакомбы': [800000, 200000], 'Подземелье': [800000, 200000], 'Каникулы бабушки': [600000, 150000] };
+const DEF_TARIFF = { 'Hell House 2': [800000, 200000], 'Катакомбы': [800000, 200000], 'Подземелье': [600000, 150000], 'Каникулы бабушки': [600000, 150000] };
 function tariff(st, b) {
   const q = ((st && st.quests) || []).find(x => x.name === b.quest) || {}, d = DEF_TARIFF[b.quest] || [0, 0];
   const base = q.base != null ? +q.base : d[0], extra = q.extra != null ? +q.extra : d[1];
