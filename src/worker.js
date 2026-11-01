@@ -231,14 +231,22 @@ const MON = ['января', 'февраля', 'марта', 'апреля', 'м
 function humanDate(ds) { const [y, m, d] = ds.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d)); return `${WD[dt.getUTCDay()]}, ${d} ${MON[m - 1]}`; }
 const money = n => String(Math.round(+n || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' сум';
 const tashDate = (ms = now()) => new Date(ms + 5 * H).toISOString().slice(0, 10);
-function finalPrice(b) { const p = +b.price || 0, d = +b.discount || 0; return Math.max(0, Math.round(p - (b.discType === 'pct' ? p * d / 100 : d))); }
+// Тариф: фикс за 4 человек + доплата за каждого следующего (из настроек квеста)
+const DEF_TARIFF = { 'Hell House 2': [800000, 200000], 'Катакомбы': [800000, 200000], 'Подземелье': [800000, 200000], 'Каникулы бабушки': [600000, 150000] };
+function tariff(st, b) {
+  const q = ((st && st.quests) || []).find(x => x.name === b.quest) || {}, d = DEF_TARIFF[b.quest] || [0, 0];
+  const base = q.base != null ? +q.base : d[0], extra = q.extra != null ? +q.extra : d[1];
+  return base + (Math.max(4, +b.guests || 4) - 4) * extra;
+}
+function finalPrice(b, st) { const p = tariff(st, b), d = +b.discount || 0; return Math.max(0, Math.round(p - (b.discType === 'pct' ? p * d / 100 : d))); }
 const bookingLine = b => `🎯 <b>${escH(b.quest)}</b> · ${humanDate(b.date)} · <b>${escH(b.time)}</b>${b.name ? ' · ' + escH(b.name) : ''}`;
 function bookingText(b) {
-  const fp = finalPrice(b), disc = fp !== (+b.price || 0);
+  const disc = +b.discount > 0;
   let t = `🆕 <b>Новая бронь</b>\n🎯 <b>${escH(b.quest)}</b>\n📅 ${humanDate(b.date)} · <b>${escH(b.time)}</b>\n`;
   t += `👤 ${escH(b.name || 'без имени')}${b.phone ? ' · ' + escH(b.phone) : ''}\n👥 ${escH(b.guests || '?')} чел.\n`;
-  t += `💰 ${money(fp)}${disc ? ` (скидка ${b.discType === 'pct' ? b.discount + '%' : money(b.discount)})` : ''}`;
-  if (+b.prepay) t += ` · предоплата ${money(b.prepay)}`;
+  if (disc) t += `🏷 Скидка ${b.discType === 'pct' ? b.discount + '%' : money(b.discount)}\n`;
+  if (+b.prepay) t += `💳 Предоплата ${money(b.prepay)}\n`;
+  t = t.replace(/\n$/, '');
   if (b.comment) t += `\n📝 ${escH(b.comment)}`;
   if (b.by) t += `\n<i>Добавил(а): ${escH(b.by)}</i>`;
   return t;
@@ -260,7 +268,7 @@ async function bookingNotify(env, b, old, notified) {
 function split(st, bookings) {
   const quests = st.quests || [], mgmt = st.mgmt || [];
   const byQ = {}; quests.forEach(q => byQ[q.name] = { q, games: 0, revenue: 0 });
-  for (const b of bookings) { if (b.status === 'cancel') continue; const r = byQ[b.quest] || (byQ[b.quest] = { q: { name: b.quest, actors: 0 }, games: 0, revenue: 0 }); r.games++; r.revenue += finalPrice(b); }
+  for (const b of bookings) { if (b.status === 'cancel') continue; const r = byQ[b.quest] || (byQ[b.quest] = { q: { name: b.quest, actors: 0 }, games: 0, revenue: 0 }); r.games++; r.revenue += finalPrice(b, st); }
   const tot = { games: 0, revenue: 0, actors: 0, owner: 0, mg: mgmt.map(m => ({ name: m.name, pct: +m.pct || 0, sum: 0 })) };
   const rows = Object.values(byQ).map(r => {
     const actors = r.games * (+r.q.actors || 0), base = r.revenue - actors; let mgSum = 0;
@@ -404,7 +412,7 @@ async function onCallback(env, cq, origin) {
   if (miss.length) return answer(`Не хватает: ${miss.map(k => FIELD_RU[k]).join(', ')}. Нажми «Изменить» и допиши.`, true);
   const st = await getSettings(env), q = (st.quests || []).find(x => x.name === f.quest) || {};
   const b = { id: 'b' + now().toString(36) + Math.random().toString(36).slice(2, 5), created: now(), date: f.date, time: f.time, quest: f.quest,
-    name: f.name || '', phone: f.phone || '', guests: f.guests || st.defaultGuests || 4, price: q.price || 0, discount: 0, discType: 'sum', prepay: 0, pay: '',
+    name: f.name || '', phone: f.phone || '', guests: f.guests || st.defaultGuests || 4, discount: 0, discType: 'sum', prepay: 0, pay: '',
     status: 'ok', comment: [f.guestsText ? f.guestsText + ' чел.' : '', 'из Telegram'].filter(Boolean).join(' · '), source: 'tg', requestId: id, by: u.name };
   await env.DB.prepare('INSERT INTO bookings (id,date,data,updated,deleted,by_user) VALUES (?,?,?,?,0,?)').bind(b.id, b.date, JSON.stringify(b), now(), u.tg_id).run();
   await closeRequest(env, id, 'confirmed', `✅ Подтверждено (${escH(u.name)}) — бронь добавлена`, b.id);

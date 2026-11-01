@@ -204,12 +204,12 @@ const putBooking=b=>{ b.date=b.date||S.date; return api('PUT','booking',b); };
 const QUEST_COLORS=['#e5484d','#e8a01a','#8e4ec6','#22a861','#3478f6','#0fa3b1'];
 const HOURLY=['11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00'];
 const DEFAULT_SETTINGS = {
-  v:3,
+  v:4,
   quests:[
-    {name:'Hell House 2',     price:500000, actors:30000, color:'#e5484d'},
-    {name:'Катакомбы',        price:500000, actors:30000, color:'#e8a01a'},
-    {name:'Подземелье',       price:400000, actors:0,     color:'#8e4ec6'},
-    {name:'Каникулы бабушки', price:400000, actors:0,     color:'#22a861'}
+    {name:'Hell House 2',     base:800000, extra:200000, actors:30000, color:'#e5484d'},
+    {name:'Катакомбы',        base:800000, extra:200000, actors:30000, color:'#e8a01a'},
+    {name:'Подземелье',       base:800000, extra:200000, actors:0,     color:'#8e4ec6'},
+    {name:'Каникулы бабушки', base:600000, extra:150000, actors:0,     color:'#22a861'}
   ],
   slots:HOURLY.slice(),
   defaultGuests:4,
@@ -243,9 +243,11 @@ function haptic(t='light'){try{tg.HapticFeedback.impactOccurred(t)}catch(_){}}
 function hapticOk(){try{tg.HapticFeedback.notificationOccurred('success')}catch(_){}}
 function toast(t,icon='check'){const el=$('toast');el.innerHTML=ic(icon,'s')+esc(t);el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1500)}
 function plural(n,a,b,c){n=Math.abs(n)%100;const m=n%10;if(n>10&&n<20)return c;if(m>1&&m<5)return b;if(m===1)return a;return c}
-const quest = name => S.settings.quests.find(q=>q.name===name) || {name,price:0,actors:0,color:'#8a8f99'};
+const quest = name => S.settings.quests.find(q=>q.name===name) || {name,base:0,extra:0,actors:0,color:'#8a8f99'};
+// Тариф: фикс за 4 человек + доплата за каждого следующего
+function tariff(qname,guests){ const q=quest(qname), n=Math.max(4,+guests||4); return (+q.base||0)+(n-4)*(+q.extra||0); }
 const dayList = d => S.bookings[d] || (S.bookings[d]=[]);
-function finalPrice(b){ const p=+b.price||0, d=+b.discount||0; const off=b.discType==='pct'?p*d/100:d; return Math.max(0,Math.round(p-off)); }
+function finalPrice(b){ const p=tariff(b.quest,b.guests), d=+b.discount||0; const off=b.discType==='pct'?p*d/100:d; return Math.max(0,Math.round(p-off)); }
 
 /* ================= Лента дней ================= */
 function renderDays(){
@@ -307,15 +309,15 @@ function viewBookings(){
     <div class="muted" style="margin:8px 4px 0">Нажми на свободное время — бронь создастся в 1 клик</div>`;
   }
   const active=list.filter(b=>b.status!=='cancel');
-  const sum=active.reduce((s,b)=>s+finalPrice(b),0);
-  h+=`<h2>${human(S.date)} · ${active.length} ${plural(active.length,'игра','игры','игр')} · ${money(sum)}</h2>`;
+  const ppl=active.reduce((s,b)=>s+(+b.guests||0),0);
+  h+=`<h2>${human(S.date)} · ${active.length} ${plural(active.length,'игра','игры','игр')} · ${ppl} чел.</h2>`;
   if(!list.length) h+=`<div class="empty">${S.quest==='*'?'Выбери квест сверху или нажми +':'Броней пока нет'}</div>`;
   for(const b of list) h+=bookingCard(b);
   return h;
 }
 function videoFor(bid){ return Object.values(S.videos).find(v=>v.bookingId===bid); }
 function bookingCard(b){
-  const q=quest(b.quest), fp=finalPrice(b), hasDisc=fp!==(+b.price||0), v=videoFor(b.id);
+  const q=quest(b.quest), hasDisc=+b.discount>0, v=videoFor(b.id);
   return `<div class="card tap bk ${b.status==='cancel'?'cancelled':''}" style="--qc:${q.color}" data-open="${b.id}">
     <div class="bar"></div>
     <div class="tm">${esc(b.time)}</div>
@@ -330,12 +332,12 @@ function bookingCard(b){
       </div>
       ${b.comment?`<div class="muted" style="margin-top:4px">${esc(b.comment)}</div>`:''}
     </div>
-    <div style="text-align:right"><div class="price">${money(fp)}</div>${hasDisc?`<div class="old">${money(b.price)}</div>`:''}</div>
+    <div style="text-align:right"><div class="price">${ic('users','s')} ${esc(b.guests||'?')}</div></div>
   </div>`;
 }
 function newBooking(time,qname){
   const q=quest(qname||S.settings.quests[0].name);
-  return {id:uid(),created:Date.now(),time:time||S.settings.slots[0],quest:q.name,name:'',phone:'',guests:S.settings.defaultGuests,price:q.price,discount:0,discType:'sum',prepay:0,pay:'',status:'new',comment:''};
+  return {id:uid(),created:Date.now(),time:time||S.settings.slots[0],quest:q.name,name:'',phone:'',guests:S.settings.defaultGuests,discount:0,discType:'sum',prepay:0,pay:'',status:'new',comment:''};
 }
 function quickAdd(time){
   const b=newBooking(time,S.quest); b.date=S.date; dayList(S.date).push(b); putBooking(b);
@@ -363,13 +365,11 @@ function openBooking(id,preset){
       <div><label>Телефон</label><input id="f_phone" type="tel" value="${esc(b.phone)}" placeholder="+998 .."></div>
     </div>
     <label>Имя клиента / команда</label><input id="f_name" value="${esc(b.name)}" placeholder="Имя" autocomplete="off">
-    <label>Цена, сум</label><input id="f_price" type="number" inputmode="numeric" value="${esc(b.price)}" oninput="previewPrice()">
     <label>Скидка</label>
     <div class="two">
       <input id="f_discount" type="number" inputmode="numeric" value="${esc(b.discount||'')}" placeholder="0" oninput="previewPrice()">
       <div class="seg"><button data-dt="sum" class="${b.discType!=='pct'?'on':''}">сум</button><button data-dt="pct" class="${b.discType==='pct'?'on':''}">%</button></div>
     </div>
-    <div class="card" style="background:var(--bg2);margin:10px 0 0" id="f_final"></div>
     <label>Предоплата, сум</label><input id="f_prepay" type="number" inputmode="numeric" value="${esc(b.prepay||'')}" placeholder="0">
     <label>Оплата</label>
     <div class="seg">${['',...st.payFields].map(p=>`<button data-pay="${esc(p)}" class="${(b.pay||'')===p?'on':''}">${p?esc(p):'—'}</button>`).join('')}</div>
@@ -382,23 +382,18 @@ function openBooking(id,preset){
     ${ex?`<button class="btn danger" data-act="delete">${ic('trash','s')} Удалить бронь</button>`:''}
     ${!ex&&b.requestId?`<button class="btn danger" data-act="rejectreq">${ic('x','s')} Отклонить заявку</button>`:''}
   `);
-  previewPrice();
 }
 function setEditTime(t){
   editing.time=t; const box=$('f_times'); if(!box) return;
   if(!box.querySelector(`[data-ft="${t}"]`)){ const b=document.createElement('button'); b.className='chip'; b.dataset.ft=t; b.textContent=t; box.insertBefore(b,box.lastElementChild); }
   box.querySelectorAll('[data-ft]').forEach(c=>c.classList.toggle('on',c.dataset.ft===t)); haptic();
 }
-function previewPrice(){
-  if(!editing) return;
-  editing.price=+$('f_price').value||0; editing.discount=+$('f_discount').value||0;
-  $('f_final').innerHTML=`<div class="row"><span class="grow muted">Итого к оплате</span><b class="big">${money(finalPrice(editing))}</b></div>`;
-}
+function previewPrice(){}
 function collectBooking(){
   const b=editing, g=k=>$('f_'+k).value.trim();
   const date=g('date'); if(!date){ toast('Укажи дату','x'); return null; }
-  Object.assign(b,{name:g('name'),phone:g('phone'),guests:+g('guests')||0,price:+g('price')||0,discount:+g('discount')||0,prepay:+g('prepay')||0,comment:g('comment')});
-  const isNew=b._new; delete b._new; delete b._noDate;
+  Object.assign(b,{name:g('name'),phone:g('phone'),guests:+g('guests')||0,discount:+g('discount')||0,prepay:+g('prepay')||0,comment:g('comment')});
+  const isNew=b._new; delete b._new; delete b._noDate; delete b.price;
   for(const d in S.bookings){ const i=S.bookings[d].findIndex(x=>x.id===b.id); if(i>=0) S.bookings[d].splice(i,1); }
   b.date=date; dayList(date).push(b);
   if(date!==S.date){ S.date=date; }
@@ -487,11 +482,11 @@ function saveVideoForm(){
 /* ================= Касса и отчёты ================= */
 function calcSplit(dates){
   const st=S.settings; const byQ={};
-  st.quests.forEach(q=>byQ[q.name]={q,games:0,revenue:0});
+  st.quests.forEach(q=>byQ[q.name]={q,games:0,revenue:0,players:0});
   for(const d of dates) for(const b of (S.bookings[d]||[])){
     if(b.status==='cancel') continue;
-    const r=byQ[b.quest]||(byQ[b.quest]={q:quest(b.quest),games:0,revenue:0});
-    r.games++; r.revenue+=finalPrice(b);
+    const r=byQ[b.quest]||(byQ[b.quest]={q:quest(b.quest),games:0,revenue:0,players:0});
+    r.games++; r.revenue+=finalPrice(b); r.players+=Math.max(+b.guests||0,0);
   }
   let tot={games:0,revenue:0,actors:0,base:0,mgmt:st.mgmt.map(m=>({name:m.name,pct:+m.pct||0,sum:0})),owner:0};
   const rows=Object.values(byQ).map(r=>{
@@ -523,7 +518,7 @@ function splitBlock(rows,tot,title){
   </div><h2>По квестам</h2>`;
   for(const r of rows){
     if(!r.games){ h+=`<div class="card row" style="padding:10px 14px"><span class="dot" style="background:${r.q.color}"></span><span class="grow">${esc(r.q.name)}</span><span class="muted">игр не было</span></div>`; continue; }
-    h+=`<div class="card"><div class="qhead"><span class="dot" style="background:${r.q.color}"></span>${esc(r.q.name)}<span class="grow"></span><span class="muted">${r.games} ${plural(r.games,'игра','игры','игр')}</span></div>`;
+    h+=`<div class="card"><div class="qhead"><span class="dot" style="background:${r.q.color}"></span>${esc(r.q.name)}<span class="grow"></span><span class="muted">${r.games} ${plural(r.games,'игра','игры','игр')} · ${r.players} чел.</span></div>`;
     h+=`<div class="sum"><span>Выручка</span><b>${money(r.revenue)}</b></div>`;
     if(r.actors) h+=`<div class="sum"><span>Актёры (${r.games} × ${money(r.q.actors)})</span><b class="out">−${money(r.actors)}</b></div><div class="sum"><span>После актёров</span><b>${money(r.base)}</b></div>`;
     h+=`<div class="sum"><span>Управление ${mgPct}%</span><b>${money(r.mgSum)}</b></div>`;
@@ -636,7 +631,9 @@ ${S.me&&S.me.role==='owner'?`<h2>Группа Telegram</h2><div class="card" id=
   <h2>Квесты</h2><div class="card">
     ${st.quests.map((q,i)=>`<div class="qset">
       <div class="row" style="margin-top:8px"><span class="dot" style="background:${q.color};width:14px;height:14px"></span><input value="${esc(q.name)}" data-set="quests.${i}.name" style="font-weight:600"><button class="del" data-del="quests.${i}">${ic('trash','s')}</button></div>
-      <div class="two"><div><label>Цена, сум</label><input type="number" inputmode="numeric" value="${q.price}" data-set="quests.${i}.price" data-num></div>
+      <div class="two"><div><label>За 4 человек, сум</label><input type="number" inputmode="numeric" value="${q.base||0}" data-set="quests.${i}.base" data-num></div>
+      <div><label>+ за каждого следующего</label><input type="number" inputmode="numeric" value="${q.extra||0}" data-set="quests.${i}.extra" data-num></div></div>
+      <div class="two"><div class="muted" style="align-self:end;padding-bottom:12px">Пример: 7 чел. = ${money((+q.base||0)+3*(+q.extra||0))}</div>
       <div><label>Актёры за игру, сум</label><input type="number" inputmode="numeric" value="${q.actors}" data-set="quests.${i}.actors" data-num></div></div>
     </div>`).join('')}
     <button class="btn soft" style="margin-top:0" data-add="quests">${ic('plus','s')} Добавить квест</button></div>
@@ -731,9 +728,9 @@ document.addEventListener('click',async e=>{
   if(d.open) { haptic(); return openBooking(d.open); }
   if(d.req) { haptic(); return openRequest(d.req); }
   // бронь
-  if(d.fq!==undefined){ editing.quest=d.fq; $('f_price').value=quest(d.fq).price; previewPrice(); return segOn(t); }
+  if(d.fq!==undefined){ editing.quest=d.fq; return segOn(t); }
   if(d.ft) return setEditTime(d.ft);
-  if(d.dt){ editing.discType=d.dt; previewPrice(); return segOn(t); }
+  if(d.dt){ editing.discType=d.dt; return segOn(t); }
   if(d.pay!==undefined){ editing.pay=d.pay; return segOn(t); }
   if(d.st){ editing.status=d.st; return segOn(t); }
   // касса
@@ -753,7 +750,7 @@ document.addEventListener('click',async e=>{
   if(d.udel){ if(await confirmBox('Убрать сотрудника?')){ await api('DELETE','users/'+d.udel); loadUsers(); } return; }
   // настройки
   if(d.del){ const p=d.del.split('.'); S.settings[p[0]].splice(+p[1],1); return render(); }
-  if(d.add){ const k=d.add; if(k==='quests') S.settings.quests.push({name:'Новый квест',price:0,actors:0,color:QUEST_COLORS[S.settings.quests.length%QUEST_COLORS.length]}); else S.settings[k].push(''); return render(); }
+  if(d.add){ const k=d.add; if(k==='quests') S.settings.quests.push({name:'Новый квест',base:0,extra:0,actors:0,color:QUEST_COLORS[S.settings.quests.length%QUEST_COLORS.length]}); else S.settings[k].push(''); return render(); }
   switch(d.act){
     case 'new': haptic(); return S.tab==='video'?openVideo(null):openBooking(null);
     case 'close': return closeSheet();
@@ -829,6 +826,10 @@ function applyRole(){
   }
   const r=await api('GET','data?since=0'); merge(r.data);
   if(!r.data.settings && S.me.role==='owner') api('PUT','settings',S.settings);
+  else if(S.me.role==='owner' && (S.settings.v||0)<4){ // переход на тариф «за 4 чел. + за каждого»
+    const def=Object.fromEntries(DEFAULT_SETTINGS.quests.map(q=>[q.name,q]));
+    S.settings.quests.forEach(q=>{ const d=def[q.name]||{base:0,extra:0}; if(q.base==null) q.base=d.base; if(q.extra==null) q.extra=d.extra; delete q.price; });
+    S.settings.v=4; api('PUT','settings',S.settings); }
   setSync('ok'); applyRole(); renderDays(); render();
   const rq=new URLSearchParams(location.search).get('req');
   if(rq){ if(!(S.requests||[]).find(x=>x.id===rq)){ const g=await api('GET','request/'+rq); if(g.ok&&g.data.request.status==='pending') (S.requests=S.requests||[]).push(g.data.request); }

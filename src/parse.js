@@ -25,18 +25,20 @@ const LABELS = [null, /номер\s*телефона|телефон|номер|t
 function numberedBlock(text) {
   const lines = text.split(/\n/);
   let best = null, cur = null;
+  const close = () => { if (cur && Object.keys(cur).filter(k => k !== '_lines').length >= 3) best = cur; cur = null; };
   for (const raw of lines) {
     const m = raw.match(/^\s*([1-5])(?:\s*[.):\-–]\s*|\s+)(.+)$/);
-    if (!m) { if (raw.trim() && cur) { if (Object.keys(cur).length >= 3) best = cur; cur = null; } continue; }
+    if (!m) { if (raw.trim() && cur) close(); continue; }
     const n = +m[1];
     let v = m[2].trim();
     const lab = v.match(LABELS[n]);
     if (lab && lab.index === 0) v = v.slice(lab[0].length).replace(/^[\s:\-–—=]+/, '').trim(); // «Номер телефона: 90...» → «90...»
-    if (cur && n <= Math.max(...Object.keys(cur).map(Number))) { if (Object.keys(cur).length >= 3) best = cur; cur = null; }
-    cur = cur || {};
+    if (cur && n <= Math.max(...Object.keys(cur).filter(k => k !== '_lines').map(Number))) close();
+    cur = cur || { _lines: [] };
+    cur._lines.push(raw);
     if (v) cur[n] = v;
   }
-  if (cur && Object.keys(cur).length >= 3) best = cur;
+  close();
   return best;
 }
 
@@ -51,10 +53,16 @@ export function parseBooking(text, opts = {}) {
     if (block[3]) { const g = inner(/^\d{1,2}\s*$/.test(block[3]) ? block[3] + ' чел' : block[3]); if (g.guests) { f.guests = g.guests; if (g.guestsText) f.guestsText = g.guestsText; } }
     if (block[4]) { const d = inner(block[4]); if (d.date) f.date = d.date; if (d.time) f.time = d.time; }
     if (block[5]) { const q = inner(block[5]).quest; if (q) f.quest = q; else f.questRaw = block[5]; }
-    if (!f.phone) { const p = inner(text).phone; if (p) f.phone = p; } // телефон могли написать отдельно
+    // остальной текст (вне пунктов): дату часто пишут сверху над формой
+    let outside = text; for (const l of block._lines) outside = outside.replace(l, ' ');
+    const o = inner(outside);
+    if (!f.date && o.date) f.date = o.date;
+    if (!f.time && o.time) f.time = o.time;
+    if (!f.phone && o.phone) f.phone = o.phone;
+    if (!f.quest && o.quest) f.quest = o.quest;
     const res = { fields: f, missing: ['quest', 'date', 'time', 'name', 'phone'].filter(k => !f[k]), form: true };
     res.score = (f.phone ? 2 : 0) + (f.date ? 1 : 0) + (f.time ? 1 : 0) + (f.quest ? 1 : 0) + (f.guests ? 1 : 0) + (f.name ? 0.5 : 0);
-    res.isBooking = Object.keys(block).length >= 3 && res.score >= 2.5;
+    res.isBooking = res.score >= 2.5;
     return res;
   }
   const { today, quests = [] } = opts;
