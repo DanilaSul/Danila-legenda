@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>QuestHouse</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:var(--tg-theme-bg-color,#fff);
+  --bg2:var(--tg-theme-secondary-bg-color,#f1f2f6);
+  --text:var(--tg-theme-text-color,#111);
+  --hint:var(--tg-theme-hint-color,#8a8f99);
+  --accent:var(--tg-theme-button-color,#2f7cf6);
+  --accent-text:var(--tg-theme-button-text-color,#fff);
+  --danger:var(--tg-theme-destructive-text-color,#e5484d);
+  --ok:#2fb36b;
+  --radius:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg2);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding-bottom:84px}
+header{position:sticky;top:0;z-index:5;background:var(--bg2);padding:12px 16px 6px}
+h1{font-size:20px;margin:0 0 8px}
+h2{font-size:16px;margin:18px 0 8px}
+.days{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
+.days::-webkit-scrollbar{display:none}
+.day{flex:0 0 auto;min-width:48px;text-align:center;padding:6px 4px;border-radius:12px;background:var(--bg);font-size:12px;color:var(--hint);border:0}
+.day b{display:block;font-size:17px;color:var(--text)}
+.day.on{background:var(--accent);color:var(--accent-text)}
+.day.on b{color:var(--accent-text)}
+.day .dot{display:block;height:5px;width:5px;border-radius:50%;margin:2px auto 0;background:transparent}
+.day .dot.has{background:var(--ok)}
+main{padding:0 16px}
+.card{background:var(--bg);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px}
+.row{display:flex;align-items:center;gap:10px}
+.grow{flex:1;min-width:0}
+.muted{color:var(--hint);font-size:13px}
+.time{font-weight:700;font-size:17px;min-width:52px}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;background:var(--bg2);color:var(--hint)}
+.badge.paid{background:rgba(47,179,107,.15);color:var(--ok)}
+.empty{text-align:center;color:var(--hint);padding:30px 0}
+.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.slot{padding:10px 0;border-radius:10px;border:0;background:var(--bg);color:var(--text);font-weight:600;font-size:14px}
+.slot.busy{background:rgba(47,179,107,.15);color:var(--ok)}
+.slot.sel{background:var(--accent);color:var(--accent-text)}
+label{display:block;font-size:13px;color:var(--hint);margin:10px 0 4px}
+input,select,textarea{width:100%;padding:11px 12px;border-radius:10px;border:1px solid transparent;background:var(--bg2);color:var(--text);font:inherit;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn{display:block;width:100%;padding:13px;border-radius:12px;border:0;background:var(--accent);color:var(--accent-text);font:600 15px inherit;font-family:inherit;margin-top:12px}
+.btn.ghost{background:var(--bg);color:var(--accent)}
+.btn.danger{background:transparent;color:var(--danger)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:7px 12px;border-radius:20px;border:0;background:var(--bg2);color:var(--text);font-size:14px}
+.chip.on{background:var(--accent);color:var(--accent-text)}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--bg);border-top:1px solid rgba(128,128,128,.15);padding:6px 6px calc(6px + env(safe-area-inset-bottom));z-index:10}
+nav button{flex:1;border:0;background:none;color:var(--hint);font-size:11px;padding:4px 0}
+nav button span{display:block;font-size:22px;line-height:1.2}
+nav button.on{color:var(--accent)}
+.fab{position:fixed;right:16px;bottom:84px;width:56px;height:56px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-text);font-size:30px;box-shadow:0 4px 14px rgba(0,0,0,.2);z-index:9}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:20;display:none}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:92vh;overflow-y:auto;background:var(--bg);border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));z-index:21;transform:translateY(105%);transition:transform .22s;visibility:hidden}
+.sheet.open{transform:none;visibility:visible}
+.sum{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed rgba(128,128,128,.25)}
+.sum:last-child{border:0}
+.big{font-size:20px;font-weight:700}
+.in{color:var(--ok)}.out{color:var(--danger)}
+.list-item{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.list-item input{flex:1}
+.x{border:0;background:var(--bg2);color:var(--danger);width:40px;height:40px;border-radius:10px;font-size:18px}
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#222;color:#fff;padding:9px 16px;border-radius:20px;font-size:14px;z-index:50;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:.92}
+</style>
+</head>
+<body>
+<header>
+  <div class="row"><h1 class="grow" id="title">Брони</h1><span class="muted" id="sync"></span></div>
+  <div class="days" id="days"></div>
+</header>
+<main id="view"></main>
+<button class="fab" id="fab" onclick="openBooking()">+</button>
+<nav>
+  <button data-tab="bookings" class="on" onclick="go('bookings')"><span>📅</span>Брони</button>
+  <button data-tab="cash" onclick="go('cash')"><span>💰</span>Касса</button>
+  <button data-tab="settings" onclick="go('settings')"><span>⚙️</span>Настройки</button>
+</nav>
+<div class="sheet-bg" id="sheetBg" onclick="closeSheet()"></div>
+<div class="sheet" id="sheet"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+/* ---------- Хранилище: Telegram CloudStorage (синхронизируется между устройствами), иначе localStorage ---------- */
+const useCloud = !!(tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9'));
+const store = {
+  get(key){ return new Promise(res=>{
+    if(useCloud) tg.CloudStorage.getItem(key,(e,v)=>res(e||!v?null:JSON.parse(v)));
+    else { try{ const v=localStorage.getItem(key); res(v?JSON.parse(v):null);}catch(_){res(null)} }
+  })},
+  set(key,val){ return new Promise(res=>{
+    const s=JSON.stringify(val);
+    if(useCloud) tg.CloudStorage.setItem(key,s,(e)=>{ if(e) toast('Ошибка сохранения'); res(!e); });
+    else { try{localStorage.setItem(key,s)}catch(_){} res(true); }
+  })},
+  keys(){ return new Promise(res=>{
+    if(useCloud) tg.CloudStorage.getKeys((e,k)=>res(e?[]:k));
+    else { try{res(Object.keys(localStorage))}catch(_){res([])} }
+  })}
+};
+
+const DEFAULT_SETTINGS = {
+  rooms:['Квест 1','Квест 2'],
+  slots:['10:00','12:00','14:00','16:00','18:00','20:00','22:00'],
+  defaultPrice:5000,
+  defaultGuests:4,
+  cashFields:[
+    {name:'Наличные',type:'in'},
+    {name:'Карта / терминал',type:'in'},
+    {name:'Перевод',type:'in'},
+    {name:'Предоплаты',type:'in'},
+    {name:'Расходы',type:'out'},
+    {name:'Инкассация',type:'out'}
+  ],
+  admin:''
+};
+
+let S = { tab:'bookings', date:today(), settings:DEFAULT_SETTINGS, bookings:{}, room:null, daysWithData:new Set() };
+
+/* ---------- Утилиты ---------- */
+function today(){ return fmtDate(new Date()); }
+function fmtDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function parseDate(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+function human(s){ return parseDate(s).toLocaleDateString('ru-RU',{day:'numeric',month:'long',weekday:'short'}); }
+function money(n){ return (Math.round(+n||0)).toLocaleString('ru-RU')+' ₽'; }
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function haptic(t='light'){ try{ tg.HapticFeedback.impactOccurred(t) }catch(_){} }
+function toast(t){ const el=document.getElementById('toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.remove('show'),1600); }
+const bKey = d => 'b_'+d;  // брони за день
+const rKey = d => 'r_'+d;  // касса за день
+
+async function loadDay(d){
+  if(!S.bookings[d]) S.bookings[d] = (await store.get(bKey(d))) || [];
+  return S.bookings[d];
+}
+async function saveDay(d){
+  await store.set(bKey(d), S.bookings[d]);
+  if(S.bookings[d].length) S.daysWithData.add(d); else S.daysWithData.delete(d);
+}
+
+/* ---------- Лента дней ---------- */
+function renderDays(){
+  const box=document.getElementById('days'); const base=new Date(); base.setDate(base.getDate()-3);
+  let h='';
+  for(let i=0;i<31;i++){
+    const d=new Date(base); d.setDate(base.getDate()+i); const k=fmtDate(d);
+    const wd=d.toLocaleDateString('ru-RU',{weekday:'short'});
+    h+=`<button class="day ${k===S.date?'on':''}" data-d="${k}" onclick="pickDate('${k}')">${wd}<b>${d.getDate()}</b><i class="dot ${S.daysWithData.has(k)?'has':''}"></i></button>`;
+  }
+  h+=`<button class="day" onclick="document.getElementById('dpick').showPicker?.()||document.getElementById('dpick').click()">📆<b>…</b><input id="dpick" type="date" style="position:absolute;opacity:0;width:1px;height:1px" onchange="pickDate(this.value)"></button>`;
+  box.innerHTML=h;
+  const on=box.querySelector('.on'); if(on) on.scrollIntoView({inline:'center',block:'nearest'});
+}
+async function pickDate(d){ if(!d) return; S.date=d; haptic(); renderDays(); render(); }
+
+/* ---------- Навигация ---------- */
+function go(tab){
+  S.tab=tab; haptic();
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+  document.getElementById('title').textContent={bookings:'Брони',cash:'Касса',settings:'Настройки'}[tab];
+  document.getElementById('days').style.display = tab==='settings'?'none':'flex';
+  document.getElementById('fab').style.display = tab==='bookings'?'block':'none';
+  render();
+}
+async function render(){
+  const v=document.getElementById('view');
+  if(S.tab==='bookings') v.innerHTML = await viewBookings();
+  if(S.tab==='cash') v.innerHTML = await viewCash();
+  if(S.tab==='settings') v.innerHTML = viewSettings();
+}
+
+/* ---------- Брони ---------- */
+async function viewBookings(){
+  const list=(await loadDay(S.date)).slice().sort((a,b)=>a.time.localeCompare(b.time));
+  const st=S.settings; const room=S.room ?? st.rooms[0];
+  let h=`<div class="muted" style="margin:4px 0 8px">${human(S.date)} · нажми на свободное время — бронь добавится в 1 клик</div>`;
+  if(st.rooms.length>1){
+    h+=`<div class="chips" style="margin-bottom:8px">`+st.rooms.map(r=>`<button class="chip ${r===room?'on':''}" onclick="S.room=${esc(JSON.stringify(r))};render()">${esc(r)}</button>`).join('')+`</div>`;
+  }
+  h+=`<div class="slots">`+st.slots.map(t=>{
+    const busy=list.find(b=>b.time===t && b.room===room);
+    return `<button class="slot ${busy?'busy':''}" onclick="${busy?`openBooking('${busy.id}')`:`quickAdd('${t}')`}">${t}</button>`;
+  }).join('')+`</div>`;
+  h+=`<h2>Все брони дня (${list.length})</h2>`;
+  if(!list.length) h+=`<div class="empty">Броней пока нет</div>`;
+  for(const b of list){
+    const paid = (+b.prepay||0)>=(+b.price||0) && +b.price>0;
+    h+=`<div class="card row" onclick="openBooking('${b.id}')">
+      <div class="time">${esc(b.time)}</div>
+      <div class="grow"><div><b>${esc(b.name||'Без имени')}</b> · ${esc(b.guests||'?')} чел.</div>
+      <div class="muted">${esc(b.room)}${b.phone?' · '+esc(b.phone):''}${b.comment?' · '+esc(b.comment):''}</div></div>
+      <div style="text-align:right"><div>${money(b.price)}</div><span class="badge ${paid?'paid':''}">${b.prepay?'предопл. '+money(b.prepay):'без предоплаты'}</span></div>
+    </div>`;
+  }
+  return h;
+}
+
+// Бронь в один клик: создаём сразу с настройками по умолчанию, потом можно дописать детали
+async function quickAdd(time){
+  const st=S.settings; const room=S.room ?? st.rooms[0];
+  const b={id:uid(),time,room,name:'',phone:'',guests:st.defaultGuests,price:st.defaultPrice,prepay:0,comment:'',created:Date.now()};
+  (await loadDay(S.date)).push(b); await saveDay(S.date);
+  haptic('medium'); toast(`Бронь ${time} добавлена`); renderDays(); render();
+  openBooking(b.id);
+}
+
+async function openBooking(id){
+  const list=await loadDay(S.date); const st=S.settings;
+  const b = list.find(x=>x.id===id) || {id:null,time:st.slots[0],room:S.room??st.rooms[0],name:'',phone:'',guests:st.defaultGuests,price:st.defaultPrice,prepay:0,comment:''};
+  openSheet(`
+    <h2 style="margin-top:0">${b.id?'Бронь':'Новая бронь'} · ${human(S.date)}</h2>
+    <div class="two">
+      <div><label>Время</label><input id="f_time" type="time" value="${esc(b.time)}"></div>
+      <div><label>Комната / квест</label><select id="f_room">${st.rooms.map(r=>`<option ${r===b.room?'selected':''}>${esc(r)}</option>`).join('')}</select></div>
+    </div>
+    <label>Имя клиента</label><input id="f_name" value="${esc(b.name)}" placeholder="Иван">
+    <label>Телефон</label><input id="f_phone" type="tel" value="${esc(b.phone)}" placeholder="+7...">
+    <div class="two">
+      <div><label>Гостей</label><input id="f_guests" type="number" inputmode="numeric" value="${esc(b.guests)}"></div>
+      <div><label>Цена, ₽</label><input id="f_price" type="number" inputmode="numeric" value="${esc(b.price)}"></div>
+    </div>
+    <label>Предоплата, ₽</label><input id="f_prepay" type="number" inputmode="numeric" value="${esc(b.prepay)}">
+    <label>Комментарий</label><textarea id="f_comment" rows="2">${esc(b.comment)}</textarea>
+    <button class="btn" onclick="saveBooking('${b.id||''}')">Сохранить</button>
+    ${b.id?`<button class="btn danger" onclick="delBooking('${b.id}')">Удалить бронь</button>`:''}
+  `);
+}
+async function saveBooking(id){
+  const list=await loadDay(S.date); const g=k=>document.getElementById('f_'+k).value.trim();
+  const data={time:g('time'),room:g('room'),name:g('name'),phone:g('phone'),guests:+g('guests')||0,price:+g('price')||0,prepay:+g('prepay')||0,comment:g('comment')};
+  if(id){ Object.assign(list.find(x=>x.id===id),data); } else list.push({id:uid(),created:Date.now(),...data});
+  await saveDay(S.date); closeSheet(); haptic('medium'); toast('Сохранено'); renderDays(); render();
+}
+async function delBooking(id){
+  const ok = await confirmBox('Удалить бронь?'); if(!ok) return;
+  S.bookings[S.date]=(await loadDay(S.date)).filter(x=>x.id!==id);
+  await saveDay(S.date); closeSheet(); toast('Удалено'); renderDays(); render();
+}
+
+/* ---------- Касса ---------- */
+async function viewCash(){
+  const st=S.settings; const rep=(await store.get(rKey(S.date)))||{values:{},note:''};
+  const list=await loadDay(S.date);
+  const sumPrice=list.reduce((s,b)=>s+(+b.price||0),0), sumPre=list.reduce((s,b)=>s+(+b.prepay||0),0);
+  let h=`<div class="muted" style="margin:4px 0 8px">Касса-отчёт за ${human(S.date)}</div>
+  <div class="card"><div class="muted">По броням за день</div>
+    <div class="sum"><span>Игр</span><b>${list.length}</b></div>
+    <div class="sum"><span>Сумма по броням</span><b>${money(sumPrice)}</b></div>
+    <div class="sum"><span>Из них предоплат</span><b>${money(sumPre)}</b></div></div>
+  <div class="card">`;
+  st.cashFields.forEach((f,i)=>{
+    h+=`<label>${f.type==='in'?'➕':'➖'} ${esc(f.name)}</label><input type="number" inputmode="decimal" id="c_${i}" value="${esc(rep.values[f.name]??'')}" placeholder="0" oninput="calcCash()">`;
+  });
+  h+=`<label>Комментарий</label><textarea id="c_note" rows="2">${esc(rep.note)}</textarea></div>
+  <div class="card" id="cashTotal"></div>
+  <button class="btn" onclick="saveCash()">Сохранить отчёт</button>
+  <button class="btn ghost" onclick="shareCash()">Отправить отчёт в чат</button>`;
+  setTimeout(calcCash);
+  return h;
+}
+function readCash(){
+  const st=S.settings; const values={}; let tin=0,tout=0;
+  st.cashFields.forEach((f,i)=>{ const v=document.getElementById('c_'+i)?.value; if(v!==''&&v!=null){ values[f.name]=+v; if(f.type==='in') tin+=+v; else tout+=+v; } });
+  return {values,tin,tout,note:document.getElementById('c_note')?.value||''};
+}
+function calcCash(){
+  const {tin,tout}=readCash(); const el=document.getElementById('cashTotal'); if(!el) return;
+  el.innerHTML=`<div class="sum"><span>Приход</span><b class="in">${money(tin)}</b></div>
+    <div class="sum"><span>Расход</span><b class="out">${money(tout)}</b></div>
+    <div class="sum"><span>Итого</span><span class="big">${money(tin-tout)}</span></div>`;
+}
+async function saveCash(){
+  const {values,note,tin,tout}=readCash();
+  await store.set(rKey(S.date),{values,note,tin,tout,saved:Date.now()});
+  haptic('medium'); toast('Отчёт сохранён');
+}
+function cashText(){
+  const {values,note,tin,tout}=readCash(); const st=S.settings; const list=S.bookings[S.date]||[];
+  let t=`💰 Касса-отчёт ${human(S.date)}\n`;
+  if(st.admin) t+=`Админ: ${st.admin}\n`;
+  t+=`Игр: ${list.length}\n\n`;
+  st.cashFields.forEach(f=>{ if(values[f.name]!=null) t+=`${f.type==='in'?'+':'−'} ${f.name}: ${money(values[f.name])}\n`; });
+  t+=`\nПриход: ${money(tin)}\nРасход: ${money(tout)}\nИТОГО: ${money(tin-tout)}`;
+  if(note) t+=`\n\n📝 ${note}`;
+  return t;
+}
+async function shareCash(){
+  await saveCash(); const text=cashText();
+  const url='https://t.me/share/url?url='+encodeURIComponent(' ')+'&text='+encodeURIComponent(text);
+  if(tg && tg.openTelegramLink) tg.openTelegramLink(url); else { navigator.clipboard?.writeText(text); toast('Скопировано'); }
+}
+
+/* ---------- Настройки ---------- */
+function viewSettings(){
+  const st=S.settings;
+  const listEditor=(key,ph)=>st[key].map((v,i)=>`<div class="list-item"><input value="${esc(v)}" placeholder="${ph}" onchange="S.settings.${key}[${i}]=this.value"><button class="x" onclick="S.settings.${key}.splice(${i},1);render()">✕</button></div>`).join('')+
+    `<button class="btn ghost" style="margin-top:4px" onclick="S.settings.${key}.push('');render()">+ Добавить</button>`;
+  return `
+  <div class="card"><h2 style="margin-top:0">Комнаты / квесты</h2>${listEditor('rooms','Название')}</div>
+  <div class="card"><h2 style="margin-top:0">Время сеансов</h2>${listEditor('slots','12:00')}</div>
+  <div class="card"><h2 style="margin-top:0">По умолчанию для брони в 1 клик</h2>
+    <div class="two"><div><label>Цена, ₽</label><input type="number" value="${st.defaultPrice}" onchange="S.settings.defaultPrice=+this.value"></div>
+    <div><label>Гостей</label><input type="number" value="${st.defaultGuests}" onchange="S.settings.defaultGuests=+this.value"></div></div>
+    <label>Имя администратора (в отчёте)</label><input value="${esc(st.admin)}" onchange="S.settings.admin=this.value"></div>
+  <div class="card"><h2 style="margin-top:0">Поля касса-отчёта</h2>
+    ${st.cashFields.map((f,i)=>`<div class="list-item">
+      <select style="width:70px;flex:0 0 70px" onchange="S.settings.cashFields[${i}].type=this.value"><option value="in" ${f.type==='in'?'selected':''}>➕</option><option value="out" ${f.type==='out'?'selected':''}>➖</option></select>
+      <input value="${esc(f.name)}" onchange="S.settings.cashFields[${i}].name=this.value"><button class="x" onclick="S.settings.cashFields.splice(${i},1);render()">✕</button></div>`).join('')}
+    <button class="btn ghost" style="margin-top:4px" onclick="S.settings.cashFields.push({name:'',type:'in'});render()">+ Добавить поле</button>
+    <div class="muted" style="margin-top:6px">➕ — приход, ➖ — расход</div></div>
+  <button class="btn" onclick="saveSettings()">Сохранить настройки</button>
+  <button class="btn danger" onclick="resetSettings()">Сбросить настройки</button>
+  <div class="muted" style="text-align:center;margin:14px 0">Хранилище: ${useCloud?'облако Telegram ☁️':'локально в браузере'}</div>`;
+}
+async function saveSettings(){
+  const st=S.settings;
+  st.rooms=st.rooms.map(s=>s.trim()).filter(Boolean); if(!st.rooms.length) st.rooms=['Квест 1'];
+  st.slots=st.slots.map(s=>s.trim()).filter(Boolean).sort();
+  st.cashFields=st.cashFields.filter(f=>f.name.trim());
+  await store.set('settings',st); S.room=null; haptic('medium'); toast('Настройки сохранены'); render();
+}
+async function resetSettings(){
+  if(!(await confirmBox('Сбросить настройки на стандартные?'))) return;
+  S.settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); await store.set('settings',S.settings); render();
+}
+
+/* ---------- Шторка и диалоги ---------- */
+function openSheet(html){
+  const s=document.getElementById('sheet'); s.innerHTML=html;
+  document.getElementById('sheetBg').style.display='block'; requestAnimationFrame(()=>s.classList.add('open'));
+  if(tg && tg.BackButton){ tg.BackButton.show(); tg.BackButton.onClick(closeSheet); }
+}
+function closeSheet(){
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('sheetBg').style.display='none';
+  if(tg && tg.BackButton){ tg.BackButton.hide(); tg.BackButton.offClick(closeSheet); }
+}
+function confirmBox(text){
+  return new Promise(res=>{
+    if(tg && tg.showConfirm && tg.isVersionAtLeast('6.2')) tg.showConfirm(text,res); else res(confirm(text));
+  });
+}
+
+/* ---------- Старт ---------- */
+(async function init(){
+  const saved=await store.get('settings');
+  S.settings = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), saved||{});
+  const keys=await store.keys();
+  keys.filter(k=>k.startsWith('b_')).forEach(k=>S.daysWithData.add(k.slice(2)));
+  document.getElementById('sync').textContent = useCloud?'☁️':'';
+  renderDays(); render();
+})();
+</script>
+</body>
+</html>
