@@ -2,365 +2,546 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>QuestHouse</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 :root{
   --bg:var(--tg-theme-bg-color,#fff);
-  --bg2:var(--tg-theme-secondary-bg-color,#f1f2f6);
-  --text:var(--tg-theme-text-color,#111);
+  --bg2:var(--tg-theme-secondary-bg-color,#f2f3f7);
+  --text:var(--tg-theme-text-color,#14161a);
   --hint:var(--tg-theme-hint-color,#8a8f99);
-  --accent:var(--tg-theme-button-color,#2f7cf6);
+  --accent:var(--tg-theme-button-color,#3478f6);
   --accent-text:var(--tg-theme-button-text-color,#fff);
-  --danger:var(--tg-theme-destructive-text-color,#e5484d);
-  --ok:#2fb36b;
-  --radius:14px;
+  --danger:#e5484d; --ok:#22a861; --warn:#e8a01a;
+  --line:rgba(128,128,128,.16);
+  --r:16px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;background:var(--bg2);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-body{padding-bottom:84px}
-header{position:sticky;top:0;z-index:5;background:var(--bg2);padding:12px 16px 6px}
-h1{font-size:20px;margin:0 0 8px}
-h2{font-size:16px;margin:18px 0 8px}
-.days{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
+html,body{margin:0;background:var(--bg2);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+body{padding-bottom:calc(86px + env(safe-area-inset-bottom))}
+button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
+.i{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;vertical-align:middle}
+.i.s{width:16px;height:16px}
+header{position:sticky;top:0;z-index:5;background:var(--bg2);padding:12px 16px 4px}
+h1{font-size:24px;font-weight:800;margin:0;letter-spacing:-.3px}
+h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--hint);margin:18px 4px 8px}
+.top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.top .grow{flex:1}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--hint)}
+.days{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none;scroll-behavior:smooth}
 .days::-webkit-scrollbar{display:none}
-.day{flex:0 0 auto;min-width:48px;text-align:center;padding:6px 4px;border-radius:12px;background:var(--bg);font-size:12px;color:var(--hint);border:0}
-.day b{display:block;font-size:17px;color:var(--text)}
+.day{flex:0 0 auto;width:48px;text-align:center;padding:7px 0 5px;border-radius:14px;background:var(--bg);font-size:11px;color:var(--hint);border:0;position:relative;transition:background .15s,transform .1s}
+.day b{display:block;font-size:18px;color:var(--text);font-weight:700}
 .day.on{background:var(--accent);color:var(--accent-text)}
 .day.on b{color:var(--accent-text)}
-.day .dot{display:block;height:5px;width:5px;border-radius:50%;margin:2px auto 0;background:transparent}
-.day .dot.has{background:var(--ok)}
+.day.today:not(.on) b{color:var(--accent)}
+.day i{display:block;height:4px;width:4px;border-radius:50%;margin:3px auto 0}
+.day i.has{background:var(--ok)} .day.on i.has{background:var(--accent-text)}
+.day:active,.tile:active,.card.tap:active,.chip:active,.btn:active{transform:scale(.97)}
 main{padding:0 16px}
-.card{background:var(--bg);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px}
+.view{animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.card{background:var(--bg);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;transition:transform .1s}
 .row{display:flex;align-items:center;gap:10px}
 .grow{flex:1;min-width:0}
 .muted{color:var(--hint);font-size:13px}
-.time{font-weight:700;font-size:17px;min-width:52px}
-.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;background:var(--bg2);color:var(--hint)}
-.badge.paid{background:rgba(47,179,107,.15);color:var(--ok)}
-.empty{text-align:center;color:var(--hint);padding:30px 0}
-.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
-.slot{padding:10px 0;border-radius:10px;border:0;background:var(--bg);color:var(--text);font-weight:600;font-size:14px}
-.slot.busy{background:rgba(47,179,107,.15);color:var(--ok)}
-.slot.sel{background:var(--accent);color:var(--accent-text)}
-label{display:block;font-size:13px;color:var(--hint);margin:10px 0 4px}
-input,select,textarea{width:100%;padding:11px 12px;border-radius:10px;border:1px solid transparent;background:var(--bg2);color:var(--text);font:inherit;outline:none}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:20px;border:0;background:var(--bg);font-size:14px;font-weight:500;transition:background .15s,color .15s,transform .1s}
+.chip .dot{width:8px;height:8px;border-radius:50%}
+.chip.on{background:var(--text);color:var(--bg)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.tile{border:0;border-radius:14px;background:var(--bg);padding:10px 10px 9px;text-align:left;min-height:62px;transition:transform .1s,background .15s;border-left:4px solid transparent}
+.tile .t{font-weight:700;font-size:16px}
+.tile .n{font-size:12px;color:var(--hint);margin-top:2px}
+.tile.busy{border-left-color:var(--qc,var(--ok))}
+.tile.busy .n{color:var(--text);font-weight:500}
+.tile.free .n{display:flex;align-items:center;gap:3px;color:var(--accent)}
+.bk{display:flex;gap:12px;align-items:stretch}
+.bk .bar{width:4px;border-radius:4px;background:var(--qc)}
+.bk .tm{font-weight:800;font-size:17px;min-width:50px}
+.price{font-weight:700;white-space:nowrap}
+.old{text-decoration:line-through;color:var(--hint);font-size:12px;font-weight:400}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:var(--bg2);color:var(--hint);white-space:nowrap}
+.b-ok{background:rgba(52,120,246,.13);color:var(--accent)}
+.b-done{background:rgba(34,168,97,.14);color:var(--ok)}
+.b-cancel{background:rgba(229,72,77,.12);color:var(--danger)}
+.b-disc{background:rgba(232,160,26,.15);color:var(--warn)}
+.cancelled{opacity:.5}
+.empty{text-align:center;color:var(--hint);padding:26px 0 10px}
+label{display:block;font-size:12px;font-weight:500;color:var(--hint);margin:12px 2px 5px}
+input,select,textarea{width:100%;padding:12px;border-radius:12px;border:1.5px solid transparent;background:var(--bg2);color:var(--text);font:inherit;font-size:16px;outline:none;transition:border-color .15s;-webkit-appearance:none;appearance:none}
 input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.btn{display:block;width:100%;padding:13px;border-radius:12px;border:0;background:var(--accent);color:var(--accent-text);font:600 15px inherit;font-family:inherit;margin-top:12px}
+.seg{display:flex;background:var(--bg2);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:none;padding:8px 4px;border-radius:9px;font-size:13px;font-weight:600;color:var(--hint);transition:background .15s,color .15s}
+.seg button.on{background:var(--bg);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:14px;border:0;background:var(--accent);color:var(--accent-text);font-weight:600;font-size:15px;margin-top:12px;transition:transform .1s,opacity .15s}
 .btn.ghost{background:var(--bg);color:var(--accent)}
+.btn.soft{background:var(--bg2);color:var(--accent)}
 .btn.danger{background:transparent;color:var(--danger)}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{padding:7px 12px;border-radius:20px;border:0;background:var(--bg2);color:var(--text);font-size:14px}
-.chip.on{background:var(--accent);color:var(--accent-text)}
-nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--bg);border-top:1px solid rgba(128,128,128,.15);padding:6px 6px calc(6px + env(safe-area-inset-bottom));z-index:10}
-nav button{flex:1;border:0;background:none;color:var(--hint);font-size:11px;padding:4px 0}
-nav button span{display:block;font-size:22px;line-height:1.2}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:color-mix(in srgb,var(--bg) 88%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:10}
+nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:none;color:var(--hint);font-size:11px;font-weight:500;padding:4px 0;transition:color .15s}
 nav button.on{color:var(--accent)}
-.fab{position:fixed;right:16px;bottom:84px;width:56px;height:56px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-text);font-size:30px;box-shadow:0 4px 14px rgba(0,0,0,.2);z-index:9}
-.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:20;display:none}
-.sheet{position:fixed;left:0;right:0;bottom:0;max-height:92vh;overflow-y:auto;background:var(--bg);border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));z-index:21;transform:translateY(105%);transition:transform .22s;visibility:hidden}
+.fab{position:fixed;right:16px;bottom:calc(80px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:18px;border:0;background:var(--accent);color:var(--accent-text);box-shadow:0 6px 20px rgba(52,120,246,.35);z-index:9;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.fab:active{transform:scale(.92)}
+.fab .i{width:26px;height:26px;stroke-width:2.4}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:20;opacity:0;pointer-events:none;transition:opacity .22s}
+.sheet-bg.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--bg);border-radius:22px 22px 0 0;padding:8px 16px calc(20px + env(safe-area-inset-bottom));z-index:21;transform:translateY(105%);transition:transform .28s cubic-bezier(.2,.8,.2,1);visibility:hidden;will-change:transform}
 .sheet.open{transform:none;visibility:visible}
-.sum{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed rgba(128,128,128,.25)}
+.grab{width:38px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
+.sh-head{display:flex;align-items:center;gap:8px}
+.sh-head h3{flex:1;margin:0;font-size:19px}
+.x{border:0;background:var(--bg2);color:var(--hint);width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.sum{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 .sum:last-child{border:0}
-.big{font-size:20px;font-weight:700}
+.sum.sub{padding-left:14px;font-size:14px;color:var(--hint)}
+.sum.sub b{color:var(--text);font-weight:600}
+.big{font-size:22px;font-weight:800}
 .in{color:var(--ok)}.out{color:var(--danger)}
-.list-item{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.qhead{display:flex;align-items:center;gap:8px;font-weight:700;margin-bottom:4px}
+.qhead .dot,.dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+.total-card{background:var(--text);color:var(--bg)}
+.total-card .muted{color:color-mix(in srgb,var(--bg) 60%,transparent)}
+.total-card .sum{border-color:color-mix(in srgb,var(--bg) 18%,transparent)}
+.list-item{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .list-item input{flex:1}
-.x{border:0;background:var(--bg2);color:var(--danger);width:40px;height:40px;border-radius:10px;font-size:18px}
-.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#222;color:#fff;padding:9px 16px;border-radius:20px;font-size:14px;z-index:50;opacity:0;transition:opacity .2s;pointer-events:none}
-.toast.show{opacity:.92}
+.del{border:0;background:var(--bg2);color:var(--danger);width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.qset{border:1px solid var(--line);border-radius:14px;padding:4px 12px 12px;margin-bottom:10px}
+.toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translate(-50%,-20px);background:rgba(20,22,26,.92);color:#fff;padding:10px 16px;border-radius:14px;font-size:14px;font-weight:500;z-index:50;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;display:flex;gap:6px;align-items:center}
+.toast.show{opacity:1;transform:translate(-50%,0)}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M16 2.5v4M8 2.5v4M3 10h18"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M21 12h-4a2 2 0 0 0 0 4h4z"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.9.6 2.8.7a2 2 0 0 1 1.7 2z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9z"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+</svg>
+
 <header>
-  <div class="row"><h1 class="grow" id="title">Брони</h1><span class="muted" id="sync"></span></div>
+  <div class="top"><h1 class="grow" id="title">Брони</h1><span class="pill" id="sync"></span></div>
   <div class="days" id="days"></div>
 </header>
 <main id="view"></main>
-<button class="fab" id="fab" onclick="openBooking()">+</button>
+<button class="fab" id="fab" data-act="new"><svg class="i"><use href="#i-plus"/></svg></button>
 <nav>
-  <button data-tab="bookings" class="on" onclick="go('bookings')"><span>📅</span>Брони</button>
-  <button data-tab="cash" onclick="go('cash')"><span>💰</span>Касса</button>
-  <button data-tab="settings" onclick="go('settings')"><span>⚙️</span>Настройки</button>
+  <button data-tab="bookings" class="on"><svg class="i"><use href="#i-cal"/></svg>Брони</button>
+  <button data-tab="cash"><svg class="i"><use href="#i-wallet"/></svg>Касса</button>
+  <button data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg>Настройки</button>
 </nav>
-<div class="sheet-bg" id="sheetBg" onclick="closeSheet()"></div>
+<div class="sheet-bg" id="sheetBg"></div>
 <div class="sheet" id="sheet"></div>
 <div class="toast" id="toast"></div>
+<input id="dpick" type="date" style="position:fixed;left:-100px;opacity:0">
 
 <script>
 const tg = window.Telegram && Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+if (tg) { tg.ready(); tg.expand(); try{ tg.setHeaderColor('secondary_bg_color'); tg.setBackgroundColor('secondary_bg_color'); }catch(_){} }
+const $ = id => document.getElementById(id);
+const ic = (n,c='') => `<svg class="i ${c}"><use href="#i-${n}"/></svg>`;
 
-/* ---------- Хранилище: Telegram CloudStorage (синхронизируется между устройствами), иначе localStorage ---------- */
+/* ================= Хранилище =================
+   Всё держим в памяти, рисуем мгновенно, а в облако Telegram сохраняем в фоне. */
 const useCloud = !!(tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9'));
-const store = {
-  get(key){ return new Promise(res=>{
-    if(useCloud) tg.CloudStorage.getItem(key,(e,v)=>res(e||!v?null:JSON.parse(v)));
-    else { try{ const v=localStorage.getItem(key); res(v?JSON.parse(v):null);}catch(_){res(null)} }
-  })},
-  set(key,val){ return new Promise(res=>{
-    const s=JSON.stringify(val);
-    if(useCloud) tg.CloudStorage.setItem(key,s,(e)=>{ if(e) toast('Ошибка сохранения'); res(!e); });
-    else { try{localStorage.setItem(key,s)}catch(_){} res(true); }
-  })},
-  keys(){ return new Promise(res=>{
-    if(useCloud) tg.CloudStorage.getKeys((e,k)=>res(e?[]:k));
-    else { try{res(Object.keys(localStorage))}catch(_){res([])} }
-  })}
+const cloud = {
+  get:k=>new Promise(r=>{ if(useCloud) tg.CloudStorage.getItem(k,(e,v)=>r(e||!v?null:JSON.parse(v))); else { try{const v=localStorage.getItem(k);r(v?JSON.parse(v):null)}catch(_){r(null)} } }),
+  getMany:keys=>new Promise(r=>{ if(!keys.length) return r({});
+    if(useCloud) tg.CloudStorage.getItems(keys,(e,v)=>{ const o={}; if(!e&&v) for(const k in v) if(v[k]) try{o[k]=JSON.parse(v[k])}catch(_){} r(o); });
+    else { const o={}; keys.forEach(k=>{try{const v=localStorage.getItem(k); if(v) o[k]=JSON.parse(v)}catch(_){}}); r(o); } }),
+  set:(k,v)=>new Promise(r=>{ const s=JSON.stringify(v); if(useCloud) tg.CloudStorage.setItem(k,s,e=>{ if(e) toast('Ошибка сохранения','x'); r(!e)}); else { try{localStorage.setItem(k,s)}catch(_){} r(true)} }),
+  keys:()=>new Promise(r=>{ if(useCloud) tg.CloudStorage.getKeys((e,k)=>r(e?[]:k)); else { try{r(Object.keys(localStorage))}catch(_){r([])} } })
 };
+const pending={};
+function persist(k,v){ clearTimeout(pending[k]); pending[k]=setTimeout(()=>cloud.set(k,v),250); }
 
+/* ================= Настройки по умолчанию ================= */
+const QUEST_COLORS=['#e5484d','#e8a01a','#8e4ec6','#22a861','#3478f6','#0fa3b1'];
 const DEFAULT_SETTINGS = {
-  rooms:['Квест 1','Квест 2'],
-  slots:['10:00','12:00','14:00','16:00','18:00','20:00','22:00'],
-  defaultPrice:5000,
-  defaultGuests:4,
-  cashFields:[
-    {name:'Наличные',type:'in'},
-    {name:'Карта / терминал',type:'in'},
-    {name:'Перевод',type:'in'},
-    {name:'Предоплаты',type:'in'},
-    {name:'Расходы',type:'out'},
-    {name:'Инкассация',type:'out'}
+  v:2,
+  quests:[
+    {name:'Hell House 2',     price:500000, actors:30000, color:'#e5484d'},
+    {name:'Катакомбы',        price:500000, actors:30000, color:'#e8a01a'},
+    {name:'Подземелье',       price:400000, actors:0,     color:'#8e4ec6'},
+    {name:'Каникулы бабушки', price:400000, actors:0,     color:'#22a861'}
   ],
+  slots:['10:00','11:30','13:00','14:30','16:00','17:30','19:00','20:30','22:00'],
+  defaultGuests:4,
+  mgmt:[{name:'Данил',pct:10},{name:'Амир',pct:5}],
+  ownerName:'Расова',
+  payFields:['Наличные','Карта','Перевод'],
+  expenseFields:['Расходы'],
   admin:''
 };
+const STATUSES={new:'Новая',ok:'Подтверждена',done:'Прошла',cancel:'Отмена'};
+const STATUS_CLS={new:'',ok:'b-ok',done:'b-done',cancel:'b-cancel'};
 
-let S = { tab:'bookings', date:today(), settings:DEFAULT_SETTINGS, bookings:{}, room:null, daysWithData:new Set() };
+let S={tab:'bookings',date:today(),quest:'*',cashMode:'day',settings:clone(DEFAULT_SETTINGS),bookings:{},reports:{}};
 
-/* ---------- Утилиты ---------- */
-function today(){ return fmtDate(new Date()); }
-function fmtDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function parseDate(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
-function human(s){ return parseDate(s).toLocaleDateString('ru-RU',{day:'numeric',month:'long',weekday:'short'}); }
-function money(n){ return (Math.round(+n||0)).toLocaleString('ru-RU')+' ₽'; }
-function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
-function haptic(t='light'){ try{ tg.HapticFeedback.impactOccurred(t) }catch(_){} }
-function toast(t){ const el=document.getElementById('toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.remove('show'),1600); }
-const bKey = d => 'b_'+d;  // брони за день
-const rKey = d => 'r_'+d;  // касса за день
+/* ================= Утилиты ================= */
+function clone(o){return JSON.parse(JSON.stringify(o))}
+function today(){return fmtDate(new Date())}
+function fmtDate(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function parseDate(s){const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)}
+function human(s){return parseDate(s).toLocaleDateString('ru-RU',{day:'numeric',month:'long',weekday:'short'})}
+function monthName(s){const t=parseDate(s).toLocaleDateString('ru-RU',{month:'long',year:'numeric'});return t[0].toUpperCase()+t.slice(1)}
+function money(n){return Math.round(+n||0).toLocaleString('ru-RU')+' сум'}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function haptic(t='light'){try{tg.HapticFeedback.impactOccurred(t)}catch(_){}}
+function hapticOk(){try{tg.HapticFeedback.notificationOccurred('success')}catch(_){}}
+function toast(t,icon='check'){const el=$('toast');el.innerHTML=ic(icon,'s')+esc(t);el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1500)}
+const quest = name => S.settings.quests.find(q=>q.name===name) || {name,price:0,actors:0,color:'#8a8f99'};
+const dayList = d => S.bookings[d] || (S.bookings[d]=[]);
+function finalPrice(b){ const p=+b.price||0, d=+b.discount||0; const off=b.discType==='pct'?p*d/100:d; return Math.max(0,Math.round(p-off)); }
+function saveDay(d){ persist('b_'+d, dayList(d)); }
 
-async function loadDay(d){
-  if(!S.bookings[d]) S.bookings[d] = (await store.get(bKey(d))) || [];
-  return S.bookings[d];
-}
-async function saveDay(d){
-  await store.set(bKey(d), S.bookings[d]);
-  if(S.bookings[d].length) S.daysWithData.add(d); else S.daysWithData.delete(d);
-}
-
-/* ---------- Лента дней ---------- */
+/* ================= Лента дней ================= */
 function renderDays(){
-  const box=document.getElementById('days'); const base=new Date(); base.setDate(base.getDate()-3);
-  let h='';
-  for(let i=0;i<31;i++){
+  const base=new Date(); base.setDate(base.getDate()-7); const t=today(); let h='';
+  for(let i=0;i<45;i++){
     const d=new Date(base); d.setDate(base.getDate()+i); const k=fmtDate(d);
-    const wd=d.toLocaleDateString('ru-RU',{weekday:'short'});
-    h+=`<button class="day ${k===S.date?'on':''}" data-d="${k}" onclick="pickDate('${k}')">${wd}<b>${d.getDate()}</b><i class="dot ${S.daysWithData.has(k)?'has':''}"></i></button>`;
+    const has=(S.bookings[k]||[]).some(b=>b.status!=='cancel');
+    h+=`<button class="day ${k===S.date?'on':''} ${k===t?'today':''}" data-d="${k}">${d.toLocaleDateString('ru-RU',{weekday:'short'})}<b>${d.getDate()}</b><i class="${has?'has':''}"></i></button>`;
   }
-  h+=`<button class="day" onclick="document.getElementById('dpick').showPicker?.()||document.getElementById('dpick').click()">📆<b>…</b><input id="dpick" type="date" style="position:absolute;opacity:0;width:1px;height:1px" onchange="pickDate(this.value)"></button>`;
-  box.innerHTML=h;
-  const on=box.querySelector('.on'); if(on) on.scrollIntoView({inline:'center',block:'nearest'});
+  h+=`<button class="day" data-act="pickdate" style="color:var(--accent)">${ic('cal')}<span style="display:block;font-size:11px;margin-top:2px">дата</span></button>`;
+  $('days').innerHTML=h;
+  const on=$('days').querySelector('.on'); if(on){ const box=$('days'); box.style.scrollBehavior='auto'; box.scrollLeft=on.offsetLeft-box.clientWidth/2+24; box.style.scrollBehavior=''; }
 }
-async function pickDate(d){ if(!d) return; S.date=d; haptic(); renderDays(); render(); }
+function setDate(d){ if(!d) return; S.date=d; haptic(); $('days').querySelectorAll('.day').forEach(b=>b.classList.toggle('on',b.dataset.d===d)); if(!$('days').querySelector('.on')) renderDays(); render(); }
 
-/* ---------- Навигация ---------- */
+/* ================= Навигация ================= */
 function go(tab){
-  S.tab=tab; haptic();
+  if(S.tab===tab) return; S.tab=tab; haptic();
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
-  document.getElementById('title').textContent={bookings:'Брони',cash:'Касса',settings:'Настройки'}[tab];
-  document.getElementById('days').style.display = tab==='settings'?'none':'flex';
-  document.getElementById('fab').style.display = tab==='bookings'?'block':'none';
-  render();
+  $('title').textContent={bookings:'Брони',cash:'Касса',settings:'Настройки'}[tab];
+  $('days').style.display=tab==='settings'?'none':'flex';
+  $('fab').style.display=tab==='bookings'?'flex':'none';
+  render(); window.scrollTo(0,0);
 }
-async function render(){
-  const v=document.getElementById('view');
-  if(S.tab==='bookings') v.innerHTML = await viewBookings();
-  if(S.tab==='cash') v.innerHTML = await viewCash();
-  if(S.tab==='settings') v.innerHTML = viewSettings();
+function render(){
+  const v=$('view');
+  v.innerHTML=`<div class="view">${S.tab==='bookings'?viewBookings():S.tab==='cash'?viewCash():viewSettings()}</div>`;
+  if(S.tab==='cash') calcCash();
 }
 
-/* ---------- Брони ---------- */
-async function viewBookings(){
-  const list=(await loadDay(S.date)).slice().sort((a,b)=>a.time.localeCompare(b.time));
-  const st=S.settings; const room=S.room ?? st.rooms[0];
-  let h=`<div class="muted" style="margin:4px 0 8px">${human(S.date)} · нажми на свободное время — бронь добавится в 1 клик</div>`;
-  if(st.rooms.length>1){
-    h+=`<div class="chips" style="margin-bottom:8px">`+st.rooms.map(r=>`<button class="chip ${r===room?'on':''}" onclick="S.room=${esc(JSON.stringify(r))};render()">${esc(r)}</button>`).join('')+`</div>`;
+/* ================= Брони ================= */
+function viewBookings(){
+  const st=S.settings, all=dayList(S.date);
+  const list=all.filter(b=>S.quest==='*'||b.quest===S.quest).sort((a,b)=>a.time.localeCompare(b.time)||a.quest.localeCompare(b.quest));
+  let h=`<div class="chips"><button class="chip ${S.quest==='*'?'on':''}" data-q="*">Все</button>`+
+    st.quests.map(q=>`<button class="chip ${S.quest===q.name?'on':''}" data-q="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')+`</div>`;
+  if(S.quest!=='*'){
+    const q=quest(S.quest);
+    h+=`<div class="tiles">`+st.slots.map(t=>{
+      const b=all.find(x=>x.time===t&&x.quest===q.name&&x.status!=='cancel');
+      return b? `<button class="tile busy" style="--qc:${q.color}" data-open="${b.id}"><div class="t">${t}</div><div class="n ell">${esc(b.name||'Без имени')}</div></button>`
+              : `<button class="tile free" data-quick="${t}"><div class="t">${t}</div><div class="n">${ic('plus','s')}свободно</div></button>`;
+    }).join('')+`</div><div class="muted" style="margin:8px 4px 0">Нажми на свободное время — бронь создастся в 1 клик</div>`;
   }
-  h+=`<div class="slots">`+st.slots.map(t=>{
-    const busy=list.find(b=>b.time===t && b.room===room);
-    return `<button class="slot ${busy?'busy':''}" onclick="${busy?`openBooking('${busy.id}')`:`quickAdd('${t}')`}">${t}</button>`;
-  }).join('')+`</div>`;
-  h+=`<h2>Все брони дня (${list.length})</h2>`;
-  if(!list.length) h+=`<div class="empty">Броней пока нет</div>`;
-  for(const b of list){
-    const paid = (+b.prepay||0)>=(+b.price||0) && +b.price>0;
-    h+=`<div class="card row" onclick="openBooking('${b.id}')">
-      <div class="time">${esc(b.time)}</div>
-      <div class="grow"><div><b>${esc(b.name||'Без имени')}</b> · ${esc(b.guests||'?')} чел.</div>
-      <div class="muted">${esc(b.room)}${b.phone?' · '+esc(b.phone):''}${b.comment?' · '+esc(b.comment):''}</div></div>
-      <div style="text-align:right"><div>${money(b.price)}</div><span class="badge ${paid?'paid':''}">${b.prepay?'предопл. '+money(b.prepay):'без предоплаты'}</span></div>
-    </div>`;
-  }
+  const active=list.filter(b=>b.status!=='cancel');
+  const sum=active.reduce((s,b)=>s+finalPrice(b),0);
+  h+=`<h2>${human(S.date)} · ${active.length} ${plural(active.length,'игра','игры','игр')} · ${money(sum)}</h2>`;
+  if(!list.length) h+=`<div class="empty">${S.quest==='*'?'Выбери квест сверху или нажми +':'Броней пока нет'}</div>`;
+  for(const b of list) h+=bookingCard(b);
   return h;
 }
-
-// Бронь в один клик: создаём сразу с настройками по умолчанию, потом можно дописать детали
-async function quickAdd(time){
-  const st=S.settings; const room=S.room ?? st.rooms[0];
-  const b={id:uid(),time,room,name:'',phone:'',guests:st.defaultGuests,price:st.defaultPrice,prepay:0,comment:'',created:Date.now()};
-  (await loadDay(S.date)).push(b); await saveDay(S.date);
-  haptic('medium'); toast(`Бронь ${time} добавлена`); renderDays(); render();
-  openBooking(b.id);
+function plural(n,a,b,c){n=Math.abs(n)%100;const m=n%10;if(n>10&&n<20)return c;if(m>1&&m<5)return b;if(m===1)return a;return c}
+function bookingCard(b){
+  const q=quest(b.quest), fp=finalPrice(b), hasDisc=fp!==(+b.price||0);
+  return `<div class="card tap bk ${b.status==='cancel'?'cancelled':''}" style="--qc:${q.color}" data-open="${b.id}">
+    <div class="bar"></div>
+    <div class="tm">${esc(b.time)}</div>
+    <div class="grow">
+      <div class="ell"><b>${esc(b.name||'Без имени')}</b></div>
+      <div class="muted ell">${esc(b.quest)} · ${ic('users','s')} ${esc(b.guests||'?')}${b.phone?' · '+esc(b.phone):''}</div>
+      <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">
+        <span class="badge ${STATUS_CLS[b.status||'new']}">${STATUSES[b.status||'new']}</span>
+        ${hasDisc?`<span class="badge b-disc">${ic('tag','s')} −${b.discType==='pct'?b.discount+'%':money(b.discount)}</span>`:''}
+        ${+b.prepay?`<span class="badge">предоплата ${money(b.prepay)}</span>`:''}
+      </div>
+      ${b.comment?`<div class="muted" style="margin-top:4px">${esc(b.comment)}</div>`:''}
+    </div>
+    <div style="text-align:right"><div class="price">${money(fp)}</div>${hasDisc?`<div class="old">${money(b.price)}</div>`:''}</div>
+  </div>`;
+}
+function newBooking(time,qname){
+  const q=quest(qname||S.settings.quests[0].name);
+  return {id:uid(),created:Date.now(),time:time||S.settings.slots[0],quest:q.name,name:'',phone:'',guests:S.settings.defaultGuests,price:q.price,discount:0,discType:'sum',prepay:0,pay:'',status:'new',comment:''};
+}
+function quickAdd(time){
+  const b=newBooking(time,S.quest); dayList(S.date).push(b); saveDay(S.date);
+  hapticOk(); toast(`Бронь на ${time} создана`); renderDays(); render(); openBooking(b.id);
 }
 
-async function openBooking(id){
-  const list=await loadDay(S.date); const st=S.settings;
-  const b = list.find(x=>x.id===id) || {id:null,time:st.slots[0],room:S.room??st.rooms[0],name:'',phone:'',guests:st.defaultGuests,price:st.defaultPrice,prepay:0,comment:''};
+let editing=null;
+function openBooking(id){
+  const st=S.settings; const ex=dayList(S.date).find(x=>x.id===id);
+  editing = ex ? clone(ex) : newBooking(null,S.quest==='*'?null:S.quest); editing._new=!ex;
+  const b=editing;
   openSheet(`
-    <h2 style="margin-top:0">${b.id?'Бронь':'Новая бронь'} · ${human(S.date)}</h2>
+    <div class="sh-head"><h3>${ex?'Бронь':'Новая бронь'}</h3><button class="x" data-act="close">${ic('x','s')}</button></div>
+    <div class="muted">${human(S.date)}</div>
+    <label>Квест</label>
+    <div class="chips" id="f_quest">${st.quests.map(q=>`<button class="chip ${q.name===b.quest?'on':''}" data-fq="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')}</div>
     <div class="two">
       <div><label>Время</label><input id="f_time" type="time" value="${esc(b.time)}"></div>
-      <div><label>Комната / квест</label><select id="f_room">${st.rooms.map(r=>`<option ${r===b.room?'selected':''}>${esc(r)}</option>`).join('')}</select></div>
-    </div>
-    <label>Имя клиента</label><input id="f_name" value="${esc(b.name)}" placeholder="Иван">
-    <label>Телефон</label><input id="f_phone" type="tel" value="${esc(b.phone)}" placeholder="+7...">
-    <div class="two">
       <div><label>Гостей</label><input id="f_guests" type="number" inputmode="numeric" value="${esc(b.guests)}"></div>
-      <div><label>Цена, ₽</label><input id="f_price" type="number" inputmode="numeric" value="${esc(b.price)}"></div>
     </div>
-    <label>Предоплата, ₽</label><input id="f_prepay" type="number" inputmode="numeric" value="${esc(b.prepay)}">
-    <label>Комментарий</label><textarea id="f_comment" rows="2">${esc(b.comment)}</textarea>
-    <button class="btn" onclick="saveBooking('${b.id||''}')">Сохранить</button>
-    ${b.id?`<button class="btn danger" onclick="delBooking('${b.id}')">Удалить бронь</button>`:''}
+    <label>Имя клиента</label><input id="f_name" value="${esc(b.name)}" placeholder="Имя" autocomplete="off">
+    <label>Телефон</label><input id="f_phone" type="tel" value="${esc(b.phone)}" placeholder="+998 ..">
+    <label>Цена, сум</label><input id="f_price" type="number" inputmode="numeric" value="${esc(b.price)}" oninput="previewPrice()">
+    <label>Скидка</label>
+    <div class="two">
+      <input id="f_discount" type="number" inputmode="numeric" value="${esc(b.discount||'')}" placeholder="0" oninput="previewPrice()">
+      <div class="seg" id="f_disctype"><button data-dt="sum" class="${b.discType!=='pct'?'on':''}">сум</button><button data-dt="pct" class="${b.discType==='pct'?'on':''}">%</button></div>
+    </div>
+    <div class="card" style="background:var(--bg2);margin:10px 0 0" id="f_final"></div>
+    <label>Предоплата, сум</label><input id="f_prepay" type="number" inputmode="numeric" value="${esc(b.prepay||'')}" placeholder="0">
+    <label>Оплата</label>
+    <div class="seg" id="f_pay">${['',...st.payFields].map(p=>`<button data-pay="${esc(p)}" class="${(b.pay||'')===p?'on':''}">${p?esc(p):'—'}</button>`).join('')}</div>
+    <label>Статус</label>
+    <div class="seg" id="f_status">${Object.entries(STATUSES).map(([k,v])=>`<button data-st="${k}" class="${(b.status||'new')===k?'on':''}">${v}</button>`).join('')}</div>
+    <label>Комментарий</label><textarea id="f_comment" rows="2" placeholder="Например: день рождения">${esc(b.comment)}</textarea>
+    <button class="btn" data-act="save">${ic('check','s')} Сохранить</button>
+    ${ex?`<button class="btn danger" data-act="delete">${ic('trash','s')} Удалить бронь</button>`:''}
   `);
+  previewPrice();
 }
-async function saveBooking(id){
-  const list=await loadDay(S.date); const g=k=>document.getElementById('f_'+k).value.trim();
-  const data={time:g('time'),room:g('room'),name:g('name'),phone:g('phone'),guests:+g('guests')||0,price:+g('price')||0,prepay:+g('prepay')||0,comment:g('comment')};
-  if(id){ Object.assign(list.find(x=>x.id===id),data); } else list.push({id:uid(),created:Date.now(),...data});
-  await saveDay(S.date); closeSheet(); haptic('medium'); toast('Сохранено'); renderDays(); render();
+function previewPrice(){
+  if(!editing) return;
+  editing.price=+$('f_price').value||0; editing.discount=+$('f_discount').value||0;
+  const fp=finalPrice(editing);
+  $('f_final').innerHTML=`<div class="row"><span class="grow muted">Итого к оплате</span><b class="big">${money(fp)}</b></div>`;
 }
-async function delBooking(id){
-  const ok = await confirmBox('Удалить бронь?'); if(!ok) return;
-  S.bookings[S.date]=(await loadDay(S.date)).filter(x=>x.id!==id);
-  await saveDay(S.date); closeSheet(); toast('Удалено'); renderDays(); render();
+function saveBooking(){
+  const b=editing, g=k=>$('f_'+k).value.trim();
+  Object.assign(b,{time:g('time'),name:g('name'),phone:g('phone'),guests:+g('guests')||0,price:+g('price')||0,discount:+g('discount')||0,prepay:+g('prepay')||0,comment:g('comment')});
+  const isNew=b._new; delete b._new;
+  const list=dayList(S.date);
+  if(isNew) list.push(b); else { const i=list.findIndex(x=>x.id===b.id); if(i>=0) list[i]=b; }
+  saveDay(S.date); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render();
+}
+async function deleteBooking(){
+  if(!(await confirmBox('Удалить бронь?'))) return;
+  S.bookings[S.date]=dayList(S.date).filter(x=>x.id!==editing.id); saveDay(S.date);
+  editing=null; closeSheet(); toast('Удалено','trash'); renderDays(); render();
 }
 
-/* ---------- Касса ---------- */
-async function viewCash(){
-  const st=S.settings; const rep=(await store.get(rKey(S.date)))||{values:{},note:''};
-  const list=await loadDay(S.date);
-  const sumPrice=list.reduce((s,b)=>s+(+b.price||0),0), sumPre=list.reduce((s,b)=>s+(+b.prepay||0),0);
-  let h=`<div class="muted" style="margin:4px 0 8px">Касса-отчёт за ${human(S.date)}</div>
-  <div class="card"><div class="muted">По броням за день</div>
-    <div class="sum"><span>Игр</span><b>${list.length}</b></div>
-    <div class="sum"><span>Сумма по броням</span><b>${money(sumPrice)}</b></div>
-    <div class="sum"><span>Из них предоплат</span><b>${money(sumPre)}</b></div></div>
-  <div class="card">`;
-  st.cashFields.forEach((f,i)=>{
-    h+=`<label>${f.type==='in'?'➕':'➖'} ${esc(f.name)}</label><input type="number" inputmode="decimal" id="c_${i}" value="${esc(rep.values[f.name]??'')}" placeholder="0" oninput="calcCash()">`;
+/* ================= Касса ================= */
+function periodDates(){
+  if(S.cashMode==='day') return [S.date];
+  const ym=S.date.slice(0,7); return Object.keys(S.bookings).filter(d=>d.startsWith(ym)).sort();
+}
+function calcSplit(dates){
+  const st=S.settings; const byQ={};
+  st.quests.forEach(q=>byQ[q.name]={q,games:0,revenue:0});
+  for(const d of dates) for(const b of (S.bookings[d]||[])){
+    if(b.status==='cancel') continue;
+    const r=byQ[b.quest]||(byQ[b.quest]={q:quest(b.quest),games:0,revenue:0});
+    r.games++; r.revenue+=finalPrice(b);
+  }
+  let tot={games:0,revenue:0,actors:0,base:0,mgmt:st.mgmt.map(m=>({name:m.name,pct:+m.pct||0,sum:0})),owner:0};
+  const rows=Object.values(byQ).map(r=>{
+    const actors=r.games*(+r.q.actors||0), base=r.revenue-actors;
+    const mg=st.mgmt.map(m=>({name:m.name,pct:+m.pct||0,sum:base*(+m.pct||0)/100}));
+    const mgSum=mg.reduce((s,m)=>s+m.sum,0), owner=base-mgSum;
+    tot.games+=r.games; tot.revenue+=r.revenue; tot.actors+=actors; tot.base+=base; tot.owner+=owner;
+    mg.forEach((m,i)=>tot.mgmt[i].sum+=m.sum);
+    return {...r,actors,base,mg,mgSum,owner};
   });
-  h+=`<label>Комментарий</label><textarea id="c_note" rows="2">${esc(rep.note)}</textarea></div>
-  <div class="card" id="cashTotal"></div>
-  <button class="btn" onclick="saveCash()">Сохранить отчёт</button>
-  <button class="btn ghost" onclick="shareCash()">Отправить отчёт в чат</button>`;
-  setTimeout(calcCash);
+  tot.mgSum=tot.mgmt.reduce((s,m)=>s+m.sum,0);
+  return {rows,tot};
+}
+function viewCash(){
+  const st=S.settings, dates=periodDates(), {rows,tot}=calcSplit(dates);
+  const mgPct=st.mgmt.reduce((s,m)=>s+(+m.pct||0),0);
+  let h=`<div class="seg" style="margin-bottom:10px"><button data-cm="day" class="${S.cashMode==='day'?'on':''}">День · ${parseDate(S.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</button><button data-cm="month" class="${S.cashMode==='month'?'on':''}">${monthName(S.date)}</button></div>`;
+  h+=`<div class="card total-card">
+    <div class="muted">Выручка за ${S.cashMode==='day'?human(S.date):monthName(S.date).toLowerCase()}</div>
+    <div class="big" style="font-size:28px;margin:2px 0 6px">${money(tot.revenue)}</div>
+    <div class="sum"><span>Игр</span><b>${tot.games}</b></div>
+    <div class="sum"><span>Актёры</span><b>${money(tot.actors)}</b></div>
+    <div class="sum"><span>Управление ${mgPct}%</span><b>${money(tot.mgSum)}</b></div>
+    ${tot.mgmt.map(m=>`<div class="sum sub" style="color:inherit;opacity:.75"><span>${esc(m.name)} ${m.pct}%</span><b style="color:inherit">${money(m.sum)}</b></div>`).join('')}
+    <div class="sum"><span>${esc(st.ownerName)}</span><b class="big" style="font-size:18px">${money(tot.owner)}</b></div>
+  </div>`;
+  h+=`<h2>По квестам</h2>`;
+  for(const r of rows){
+    if(!r.games && !st.quests.includes(r.q)) continue;
+    h+=`<div class="card"><div class="qhead"><span class="dot" style="background:${r.q.color}"></span>${esc(r.q.name)}<span class="grow"></span><span class="muted">${r.games} ${plural(r.games,'игра','игры','игр')}</span></div>`;
+    if(!r.games){ h+=`<div class="muted">Игр не было</div></div>`; continue; }
+    h+=`<div class="sum"><span>Выручка</span><b>${money(r.revenue)}</b></div>`;
+    if(r.actors) h+=`<div class="sum"><span>Актёры (${r.games} × ${money(r.q.actors)})</span><b class="out">−${money(r.actors)}</b></div><div class="sum"><span>После актёров</span><b>${money(r.base)}</b></div>`;
+    h+=`<div class="sum"><span>Управление ${mgPct}%</span><b>${money(r.mgSum)}</b></div>`;
+    h+=r.mg.map(m=>`<div class="sum sub"><span>${esc(m.name)} ${m.pct}%</span><b>${money(m.sum)}</b></div>`).join('');
+    h+=`<div class="sum"><span>${esc(st.ownerName)}</span><b class="in">${money(r.owner)}</b></div></div>`;
+  }
+  if(S.cashMode==='day'){
+    const rep=S.reports[S.date]||{values:{},note:''};
+    h+=`<h2>Касса · приход по способам оплаты</h2><div class="card">`;
+    st.payFields.forEach((f,i)=>h+=`<label>${esc(f)}</label><input type="number" inputmode="numeric" id="cp_${i}" value="${esc(rep.values[f]??'')}" placeholder="0" oninput="calcCash()">`);
+    h+=`</div><h2>Расходы</h2><div class="card">`;
+    st.expenseFields.forEach((f,i)=>h+=`<label>${esc(f)}</label><input type="number" inputmode="numeric" id="ce_${i}" value="${esc(rep.values[f]??'')}" placeholder="0" oninput="calcCash()">`);
+    h+=`<label>Комментарий</label><textarea id="c_note" rows="2">${esc(rep.note)}</textarea></div>
+    <div class="card" id="cashTotal"></div>
+    <button class="btn" data-act="savecash">${ic('save','s')} Сохранить отчёт</button>`;
+  }
+  h+=`<button class="btn ghost" data-act="share">${ic('send','s')} Отправить отчёт в чат</button>`;
   return h;
 }
 function readCash(){
-  const st=S.settings; const values={}; let tin=0,tout=0;
-  st.cashFields.forEach((f,i)=>{ const v=document.getElementById('c_'+i)?.value; if(v!==''&&v!=null){ values[f.name]=+v; if(f.type==='in') tin+=+v; else tout+=+v; } });
-  return {values,tin,tout,note:document.getElementById('c_note')?.value||''};
+  const st=S.settings, values={}; let pin=0,pout=0;
+  st.payFields.forEach((f,i)=>{const v=$('cp_'+i)?.value; if(v){values[f]=+v;pin+=+v}});
+  st.expenseFields.forEach((f,i)=>{const v=$('ce_'+i)?.value; if(v){values[f]=+v;pout+=+v}});
+  return {values,pin,pout,note:$('c_note')?.value||''};
 }
 function calcCash(){
-  const {tin,tout}=readCash(); const el=document.getElementById('cashTotal'); if(!el) return;
-  el.innerHTML=`<div class="sum"><span>Приход</span><b class="in">${money(tin)}</b></div>
-    <div class="sum"><span>Расход</span><b class="out">${money(tout)}</b></div>
-    <div class="sum"><span>Итого</span><span class="big">${money(tin-tout)}</span></div>`;
+  const el=$('cashTotal'); if(!el) return;
+  const {pin,pout}=readCash(), {tot}=calcSplit([S.date]), diff=pin-tot.revenue;
+  el.innerHTML=`<div class="sum"><span>Пришло в кассу</span><b class="in">${money(pin)}</b></div>
+    <div class="sum"><span>Расходы</span><b class="out">−${money(pout)}</b></div>
+    <div class="sum"><span>Сверка с бронями</span><b class="${diff===0?'in':'out'}">${diff===0?'сходится':(diff>0?'+':'−')+money(Math.abs(diff))}</b></div>
+    <div class="sum"><span>Остаток в кассе</span><span class="big">${money(pin-pout)}</span></div>`;
 }
-async function saveCash(){
-  const {values,note,tin,tout}=readCash();
-  await store.set(rKey(S.date),{values,note,tin,tout,saved:Date.now()});
-  haptic('medium'); toast('Отчёт сохранён');
+function saveCash(silent){
+  if(S.cashMode!=='day') return;
+  const {values,note}=readCash(); S.reports[S.date]={values,note,saved:Date.now()};
+  persist('r_'+S.date,S.reports[S.date]); if(!silent){hapticOk();toast('Отчёт сохранён')}
 }
 function cashText(){
-  const {values,note,tin,tout}=readCash(); const st=S.settings; const list=S.bookings[S.date]||[];
-  let t=`💰 Касса-отчёт ${human(S.date)}\n`;
+  const st=S.settings, dates=periodDates(), {rows,tot}=calcSplit(dates);
+  let t=`📊 Касса-отчёт · ${S.cashMode==='day'?human(S.date):monthName(S.date)}\n`;
   if(st.admin) t+=`Админ: ${st.admin}\n`;
-  t+=`Игр: ${list.length}\n\n`;
-  st.cashFields.forEach(f=>{ if(values[f.name]!=null) t+=`${f.type==='in'?'+':'−'} ${f.name}: ${money(values[f.name])}\n`; });
-  t+=`\nПриход: ${money(tin)}\nРасход: ${money(tout)}\nИТОГО: ${money(tin-tout)}`;
-  if(note) t+=`\n\n📝 ${note}`;
-  return t;
+  t+=`\nИгр: ${tot.games}\nВыручка: ${money(tot.revenue)}\n`;
+  for(const r of rows) if(r.games) t+=`  • ${r.q.name}: ${r.games} — ${money(r.revenue)}${r.actors?` (актёры ${money(r.actors)})`:''}\n`;
+  t+=`\nАктёры: ${money(tot.actors)}\nУправление: ${money(tot.mgSum)}\n`;
+  tot.mgmt.forEach(m=>t+=`  • ${m.name} ${m.pct}%: ${money(m.sum)}\n`);
+  t+=`${st.ownerName}: ${money(tot.owner)}\n`;
+  if(S.cashMode==='day'){
+    const {values,pin,pout,note}=readCash();
+    if(pin||pout){ t+=`\nКасса:\n`; [...st.payFields,...st.expenseFields].forEach(f=>{ if(values[f]!=null) t+=`  • ${f}: ${money(values[f])}\n`; }); t+=`Остаток в кассе: ${money(pin-pout)}\n`; }
+    if(note) t+=`\n📝 ${note}`;
+  }
+  return t.trim();
 }
-async function shareCash(){
-  await saveCash(); const text=cashText();
-  const url='https://t.me/share/url?url='+encodeURIComponent(' ')+'&text='+encodeURIComponent(text);
-  if(tg && tg.openTelegramLink) tg.openTelegramLink(url); else { navigator.clipboard?.writeText(text); toast('Скопировано'); }
+function shareCash(){
+  saveCash(true); const text=cashText();
+  if(tg&&tg.openTelegramLink) tg.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent('📊')+'&text='+encodeURIComponent(text));
+  else { navigator.clipboard?.writeText(text); toast('Скопировано'); }
 }
 
-/* ---------- Настройки ---------- */
+/* ================= Настройки ================= */
 function viewSettings(){
   const st=S.settings;
-  const listEditor=(key,ph)=>st[key].map((v,i)=>`<div class="list-item"><input value="${esc(v)}" placeholder="${ph}" onchange="S.settings.${key}[${i}]=this.value"><button class="x" onclick="S.settings.${key}.splice(${i},1);render()">✕</button></div>`).join('')+
-    `<button class="btn ghost" style="margin-top:4px" onclick="S.settings.${key}.push('');render()">+ Добавить</button>`;
+  const strList=(key,ph)=>st[key].map((v,i)=>`<div class="list-item"><input value="${esc(v)}" placeholder="${ph}" data-set="${key}.${i}"><button class="del" data-del="${key}.${i}">${ic('trash','s')}</button></div>`).join('')+
+    `<button class="btn soft" style="margin-top:0" data-add="${key}">${ic('plus','s')} Добавить</button>`;
   return `
-  <div class="card"><h2 style="margin-top:0">Комнаты / квесты</h2>${listEditor('rooms','Название')}</div>
-  <div class="card"><h2 style="margin-top:0">Время сеансов</h2>${listEditor('slots','12:00')}</div>
-  <div class="card"><h2 style="margin-top:0">По умолчанию для брони в 1 клик</h2>
-    <div class="two"><div><label>Цена, ₽</label><input type="number" value="${st.defaultPrice}" onchange="S.settings.defaultPrice=+this.value"></div>
-    <div><label>Гостей</label><input type="number" value="${st.defaultGuests}" onchange="S.settings.defaultGuests=+this.value"></div></div>
-    <label>Имя администратора (в отчёте)</label><input value="${esc(st.admin)}" onchange="S.settings.admin=this.value"></div>
-  <div class="card"><h2 style="margin-top:0">Поля касса-отчёта</h2>
-    ${st.cashFields.map((f,i)=>`<div class="list-item">
-      <select style="width:70px;flex:0 0 70px" onchange="S.settings.cashFields[${i}].type=this.value"><option value="in" ${f.type==='in'?'selected':''}>➕</option><option value="out" ${f.type==='out'?'selected':''}>➖</option></select>
-      <input value="${esc(f.name)}" onchange="S.settings.cashFields[${i}].name=this.value"><button class="x" onclick="S.settings.cashFields.splice(${i},1);render()">✕</button></div>`).join('')}
-    <button class="btn ghost" style="margin-top:4px" onclick="S.settings.cashFields.push({name:'',type:'in'});render()">+ Добавить поле</button>
-    <div class="muted" style="margin-top:6px">➕ — приход, ➖ — расход</div></div>
-  <button class="btn" onclick="saveSettings()">Сохранить настройки</button>
-  <button class="btn danger" onclick="resetSettings()">Сбросить настройки</button>
-  <div class="muted" style="text-align:center;margin:14px 0">Хранилище: ${useCloud?'облако Telegram ☁️':'локально в браузере'}</div>`;
+  <h2>Квесты</h2><div class="card">
+    ${st.quests.map((q,i)=>`<div class="qset">
+      <div class="row" style="margin-top:8px"><span class="dot" style="background:${q.color};width:14px;height:14px"></span><input value="${esc(q.name)}" data-set="quests.${i}.name" style="font-weight:600"><button class="del" data-del="quests.${i}">${ic('trash','s')}</button></div>
+      <div class="two"><div><label>Цена, сум</label><input type="number" inputmode="numeric" value="${q.price}" data-set="quests.${i}.price" data-num></div>
+      <div><label>Актёры за игру, сум</label><input type="number" inputmode="numeric" value="${q.actors}" data-set="quests.${i}.actors" data-num></div></div>
+    </div>`).join('')}
+    <button class="btn soft" style="margin-top:0" data-add="quests">${ic('plus','s')} Добавить квест</button></div>
+  <h2>Распределение</h2><div class="card">
+    <div class="muted">Считается от суммы после вычета актёров</div>
+    ${st.mgmt.map((m,i)=>`<div class="two" style="grid-template-columns:1fr 90px"><div><label>Управление</label><input value="${esc(m.name)}" data-set="mgmt.${i}.name"></div><div><label>%</label><input type="number" inputmode="decimal" value="${m.pct}" data-set="mgmt.${i}.pct" data-num></div></div>`).join('')}
+    <label>Остаток получает</label><input value="${esc(st.ownerName)}" data-set="ownerName"></div>
+  <h2>Время сеансов</h2><div class="card">${strList('slots','12:00')}</div>
+  <h2>Способы оплаты</h2><div class="card">${strList('payFields','Наличные')}</div>
+  <h2>Статьи расходов</h2><div class="card">${strList('expenseFields','Расходы')}</div>
+  <h2>Прочее</h2><div class="card">
+    <label>Гостей по умолчанию</label><input type="number" inputmode="numeric" value="${st.defaultGuests}" data-set="defaultGuests" data-num>
+    <label>Администратор (в отчёте)</label><input value="${esc(st.admin)}" data-set="admin" placeholder="Имя"></div>
+  <button class="btn" data-act="savesettings">${ic('save','s')} Сохранить настройки</button>
+  <button class="btn danger" data-act="resetsettings">Сбросить на стандартные</button>
+  <div class="muted" style="text-align:center;margin:14px 0;display:flex;gap:6px;justify-content:center;align-items:center">${ic('cloud','s')} ${useCloud?'Данные в облаке Telegram':'Данные в браузере'}</div>`;
 }
-async function saveSettings(){
+function setPath(path,val){ const p=path.split('.'); let o=S.settings; for(let i=0;i<p.length-1;i++) o=o[p[i]]; o[p[p.length-1]]=val; }
+function saveSettings(){
   const st=S.settings;
-  st.rooms=st.rooms.map(s=>s.trim()).filter(Boolean); if(!st.rooms.length) st.rooms=['Квест 1'];
+  st.quests=st.quests.filter(q=>q.name.trim()); st.quests.forEach(q=>q.name=q.name.trim());
   st.slots=st.slots.map(s=>s.trim()).filter(Boolean).sort();
-  st.cashFields=st.cashFields.filter(f=>f.name.trim());
-  await store.set('settings',st); S.room=null; haptic('medium'); toast('Настройки сохранены'); render();
-}
-async function resetSettings(){
-  if(!(await confirmBox('Сбросить настройки на стандартные?'))) return;
-  S.settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); await store.set('settings',S.settings); render();
+  ['payFields','expenseFields'].forEach(k=>st[k]=st[k].map(s=>s.trim()).filter(Boolean));
+  persist('settings',st); if(S.quest!=='*'&&!st.quests.find(q=>q.name===S.quest)) S.quest='*';
+  hapticOk(); toast('Настройки сохранены'); render();
 }
 
-/* ---------- Шторка и диалоги ---------- */
+/* ================= Шторка ================= */
 function openSheet(html){
-  const s=document.getElementById('sheet'); s.innerHTML=html;
-  document.getElementById('sheetBg').style.display='block'; requestAnimationFrame(()=>s.classList.add('open'));
-  if(tg && tg.BackButton){ tg.BackButton.show(); tg.BackButton.onClick(closeSheet); }
+  const s=$('sheet'); s.innerHTML='<div class="grab"></div>'+html; s.scrollTop=0;
+  $('sheetBg').classList.add('open'); requestAnimationFrame(()=>s.classList.add('open'));
+  if(tg&&tg.BackButton){tg.BackButton.show();tg.BackButton.onClick(closeSheet)}
 }
 function closeSheet(){
-  document.getElementById('sheet').classList.remove('open');
-  document.getElementById('sheetBg').style.display='none';
-  if(tg && tg.BackButton){ tg.BackButton.hide(); tg.BackButton.offClick(closeSheet); }
+  $('sheet').classList.remove('open'); $('sheetBg').classList.remove('open'); editing=null;
+  if(tg&&tg.BackButton){tg.BackButton.hide();tg.BackButton.offClick(closeSheet)}
 }
-function confirmBox(text){
-  return new Promise(res=>{
-    if(tg && tg.showConfirm && tg.isVersionAtLeast('6.2')) tg.showConfirm(text,res); else res(confirm(text));
-  });
-}
+function confirmBox(text){ return new Promise(r=>{ if(tg&&tg.showConfirm&&tg.isVersionAtLeast('6.2')) tg.showConfirm(text,r); else r(confirm(text)); }); }
 
-/* ---------- Старт ---------- */
+/* ================= Обработчик нажатий (один на всё приложение) ================= */
+document.addEventListener('click',async e=>{
+  const t=e.target.closest('button,[data-open],.sheet-bg'); if(!t) return;
+  const d=t.dataset;
+  if(t.id==='sheetBg') return closeSheet();
+  if(d.tab) return go(d.tab);
+  if(d.d) return setDate(d.d);
+  if(d.q!==undefined){ S.quest=d.q; haptic(); return render(); }
+  if(d.quick) return quickAdd(d.quick);
+  if(d.open) { haptic(); return openBooking(d.open); }
+  if(d.cm){ S.cashMode=d.cm; haptic(); return render(); }
+  if(d.fq!==undefined){ editing.quest=d.fq; const q=quest(d.fq); $('f_price').value=q.price; previewPrice();
+    t.parentNode.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===t)); return haptic(); }
+  if(d.dt){ editing.discType=d.dt; t.parentNode.querySelectorAll('button').forEach(c=>c.classList.toggle('on',c===t)); previewPrice(); return haptic(); }
+  if(d.pay!==undefined){ editing.pay=d.pay; t.parentNode.querySelectorAll('button').forEach(c=>c.classList.toggle('on',c===t)); return haptic(); }
+  if(d.st){ editing.status=d.st; t.parentNode.querySelectorAll('button').forEach(c=>c.classList.toggle('on',c===t)); return haptic(); }
+  if(d.del){ const p=d.del.split('.'); S.settings[p[0]].splice(+p[1],1); return render(); }
+  if(d.add){ const k=d.add; if(k==='quests') S.settings.quests.push({name:'Новый квест',price:0,actors:0,color:QUEST_COLORS[S.settings.quests.length%QUEST_COLORS.length]}); else S.settings[k].push(''); return render(); }
+  switch(d.act){
+    case 'new': haptic(); return openBooking(null);
+    case 'close': return closeSheet();
+    case 'save': return saveBooking();
+    case 'delete': return deleteBooking();
+    case 'pickdate': { const p=$('dpick'); p.value=S.date; try{p.showPicker()}catch(_){p.click()} return; }
+    case 'savecash': return saveCash();
+    case 'share': return shareCash();
+    case 'savesettings': return saveSettings();
+    case 'resetsettings': if(await confirmBox('Сбросить настройки на стандартные?')){ S.settings=clone(DEFAULT_SETTINGS); persist('settings',S.settings); render(); } return;
+  }
+});
+document.addEventListener('input',e=>{ const t=e.target; if(t.dataset.set!==undefined) setPath(t.dataset.set, t.dataset.num!==undefined?(+t.value||0):t.value); });
+$('dpick').addEventListener('change',e=>setDate(e.target.value));
+
+/* ================= Старт: грузим всё одним пакетом ================= */
 (async function init(){
-  const saved=await store.get('settings');
-  S.settings = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), saved||{});
-  const keys=await store.keys();
-  keys.filter(k=>k.startsWith('b_')).forEach(k=>S.daysWithData.add(k.slice(2)));
-  document.getElementById('sync').textContent = useCloud?'☁️':'';
+  renderDays(); render();
+  const saved=await cloud.get('settings');
+  if(saved && saved.v===2) S.settings=Object.assign(clone(DEFAULT_SETTINGS),saved);
+  else if(saved && saved.admin) S.settings.admin=saved.admin;
+  const keys=(await cloud.keys()).filter(k=>/^[br]_\d{4}-\d{2}-\d{2}$/.test(k));
+  const data={};
+  for(let i=0;i<keys.length;i+=50) Object.assign(data, await cloud.getMany(keys.slice(i,i+50)));
+  for(const k in data){
+    const d=k.slice(2);
+    if(k[0]==='b') S.bookings[d]=(data[k]||[]).map(b=>({status:'new',discount:0,discType:'sum',...b,quest:b.quest||b.room||S.settings.quests[0].name}));
+    else S.reports[d]=data[k];
+  }
+  $('sync').innerHTML=useCloud?ic('cloud','s')+' облако':'';
   renderDays(); render();
 })();
 </script>
