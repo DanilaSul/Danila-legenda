@@ -12,3 +12,6 @@ CREATE INDEX IF NOT EXISTS bookings_upd ON bookings(updated);
 CREATE TABLE IF NOT EXISTS reports (date TEXT PRIMARY KEY, data TEXT, updated INTEGER, deleted INTEGER DEFAULT 0, by_user INTEGER);
 CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY, data TEXT, deadline INTEGER, done INTEGER DEFAULT 0, n24 INTEGER DEFAULT 0, nover INTEGER DEFAULT 0, updated INTEGER, deleted INTEGER DEFAULT 0, by_user INTEGER);
 CREATE INDEX IF NOT EXISTS videos_upd ON videos(updated);
+CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, chat_id INTEGER, text TEXT, fields TEXT, status TEXT DEFAULT 'pending', cards TEXT, booking_id TEXT, created INTEGER, updated INTEGER);
+CREATE INDEX IF NOT EXISTS requests_chat ON requests(chat_id, status);
+CREATE TABLE IF NOT EXISTS chatbuf (chat_id INTEGER PRIMARY KEY, text TEXT, updated INTEGER);

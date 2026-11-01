@@ -285,7 +285,16 @@ function render(){
 function viewBookings(){
   const st=S.settings, all=dayList(S.date);
   const list=all.filter(b=>S.quest==='*'||b.quest===S.quest).sort((a,b)=>a.time.localeCompare(b.time)||a.quest.localeCompare(b.quest));
-  let h=`<div class="chips"><button class="chip ${S.quest==='*'?'on':''}" data-q="*">Все</button>`+
+  let h='';
+  if((S.requests||[]).length){
+    h+=`<h2 style="margin-top:4px">${ic('send','s')} Заявки из чатов · ${S.requests.length}</h2>`+S.requests.map(r=>{
+      const q=quest(r.quest||'');
+      return `<div class="card tap bk" style="--qc:${r.quest?q.color:'var(--warn)'}" data-req="${r.id}"><div class="bar"></div>
+        <div class="grow"><div class="ell"><b>${esc(r.name||'Без имени')}</b>${r.phone?` · <span class="muted">${esc(r.phone)}</span>`:''}</div>
+        <div class="muted ell">${esc(r.quest||'квест?')} · ${r.date?parseDate(r.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'}):'дата?'} · ${esc(r.time||'время?')}${r.guestsText||r.guests?' · '+esc(r.guestsText||r.guests)+' чел.':''}</div></div>
+        <span class="badge b-disc">проверить</span></div>`;}).join('');
+  }
+  h+=`<div class="chips"><button class="chip ${S.quest==='*'?'on':''}" data-q="*">Все</button>`+
     st.quests.map(q=>`<button class="chip ${S.quest===q.name?'on':''}" data-q="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')+`</div>`;
   if(S.quest!=='*'){
     const q=quest(S.quest), active=all.filter(x=>x.quest===q.name&&x.status!=='cancel');
@@ -338,15 +347,15 @@ function pickTime(cb){
 }
 
 let editing=null;
-function openBooking(id){
+function openBooking(id,preset){
   const st=S.settings; const ex=dayList(S.date).find(x=>x.id===id);
-  editing = ex ? clone(ex) : newBooking(null,S.quest==='*'?null:S.quest); editing._new=!ex;
+  editing = ex ? clone(ex) : Object.assign(newBooking(preset&&preset.time||null,preset&&preset.quest||(S.quest==='*'?null:S.quest)),preset||{}); editing._new=!ex;
   const b=editing, v=ex&&videoFor(ex.id);
   openSheet(`
     <div class="sh-head"><h3>${ex?'Бронь':'Новая бронь'}</h3><button class="x" data-act="close">${ic('x','s')}</button></div>
-    <div class="muted">${human(S.date)}</div>
     <label>Квест</label>
     <div class="chips">${st.quests.map(q=>`<button class="chip ${q.name===b.quest?'on':''}" data-fq="${esc(q.name)}"><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</button>`).join('')}</div>
+    <label>Дата${b._noDate?' <span style="color:var(--danger)">— клиент не указал, выбери</span>':''}</label><input id="f_date" type="date" value="${b._noDate?'':S.date}">
     <label>Время</label>
     <div class="chips" id="f_times">${[...new Set([...st.slots,b.time])].sort().map(t=>`<button class="chip ${t===b.time?'on':''}" data-ft="${t}">${t}</button>`).join('')}<button class="chip" data-act="ftcustom" style="color:var(--accent)">${ic('clock','s')} Изменить</button></div>
     <div class="two">
@@ -371,6 +380,7 @@ function openBooking(id){
            :`<button class="btn soft" data-act="buyvideo">${ic('video','s')} Купили видео</button>`):''}
     <button class="btn" data-act="save">${ic('check','s')} Сохранить</button>
     ${ex?`<button class="btn danger" data-act="delete">${ic('trash','s')} Удалить бронь</button>`:''}
+    ${!ex&&b.requestId?`<button class="btn danger" data-act="rejectreq">${ic('x','s')} Отклонить заявку</button>`:''}
   `);
   previewPrice();
 }
@@ -386,13 +396,22 @@ function previewPrice(){
 }
 function collectBooking(){
   const b=editing, g=k=>$('f_'+k).value.trim();
+  const date=g('date'); if(!date){ toast('Укажи дату','x'); return null; }
   Object.assign(b,{name:g('name'),phone:g('phone'),guests:+g('guests')||0,price:+g('price')||0,discount:+g('discount')||0,prepay:+g('prepay')||0,comment:g('comment')});
-  const isNew=b._new; delete b._new;
-  const list=dayList(S.date);
-  if(isNew) list.push(b); else { const i=list.findIndex(x=>x.id===b.id); if(i>=0) list[i]=b; }
-  b.date=S.date; putBooking(b); return b;
+  const isNew=b._new; delete b._new; delete b._noDate;
+  for(const d in S.bookings){ const i=S.bookings[d].findIndex(x=>x.id===b.id); if(i>=0) S.bookings[d].splice(i,1); }
+  b.date=date; dayList(date).push(b);
+  if(date!==S.date){ S.date=date; }
+  putBooking(b); return b;
 }
-function saveBooking(){ collectBooking(); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render(); }
+function openRequest(id){
+  const r=(S.requests||[]).find(x=>x.id===id); if(!r) return toast('Заявка уже обработана','x');
+  if(r.date){ S.date=r.date; renderDays(); render(); }
+  openBooking(null,{time:r.time||S.settings.slots[0],quest:r.quest||S.settings.quests[0].name,name:r.name||'',phone:r.phone||'',
+    guests:r.guests||S.settings.defaultGuests,status:'ok',source:'tg',requestId:r.id,_noDate:!r.date,
+    comment:[r.guestsText?r.guestsText+' чел.':'','из Telegram'].filter(Boolean).join(' · ')});
+}
+function saveBooking(){ const rid=editing&&editing.requestId; if(!collectBooking()) return; if(rid) S.requests=(S.requests||[]).filter(x=>x.id!==rid); editing=null; closeSheet(); hapticOk(); toast('Сохранено'); renderDays(); render(); }
 async function deleteBooking(){
   if(!(await confirmBox('Удалить бронь?'))) return;
   S.bookings[S.date]=dayList(S.date).filter(x=>x.id!==editing.id); api('DELETE','booking/'+editing.id);
@@ -702,7 +721,7 @@ function segOn(t){ t.parentNode.querySelectorAll('button,.chip').forEach(c=>c.cl
 
 /* ================= Обработчик нажатий (один на всё приложение) ================= */
 document.addEventListener('click',async e=>{
-  const t=e.target.closest('button,[data-open],[data-rep],.sheet-bg'); if(!t) return;
+  const t=e.target.closest('button,[data-open],[data-rep],[data-req],.sheet-bg'); if(!t) return;
   const d=t.dataset;
   if(t.id==='sheetBg') return closeSheet();
   if(d.tab) return go(d.tab);
@@ -710,6 +729,7 @@ document.addEventListener('click',async e=>{
   if(d.q!==undefined){ S.quest=d.q; haptic(); return render(); }
   if(d.quick) return quickAdd(d.quick);
   if(d.open) { haptic(); return openBooking(d.open); }
+  if(d.req) { haptic(); return openRequest(d.req); }
   // бронь
   if(d.fq!==undefined){ editing.quest=d.fq; $('f_price').value=quest(d.fq).price; previewPrice(); return segOn(t); }
   if(d.ft) return setEditTime(d.ft);
@@ -741,7 +761,7 @@ document.addEventListener('click',async e=>{
     case 'delete': return deleteBooking();
     case 'customtime': return pickTime(quickAdd);
     case 'ftcustom': return pickTime(setEditTime);
-    case 'buyvideo': { const b=collectBooking(); saveVideo(newVideo(b)); editing=null; closeSheet(); hapticOk(); toast('Видео добавлено в задачи'); return render(); }
+    case 'buyvideo': { const b=collectBooking(); if(!b) return; saveVideo(newVideo(b)); editing=null; closeSheet(); hapticOk(); toast('Видео добавлено в задачи'); return render(); }
     case 'pickdate': { const p=$('dpick'); p.value=S.date; try{p.showPicker()}catch(_){p.click()} return; }
     case 'savecash': return createReport();
     case 'share': return share(reportText([S.date],human(S.date),S.reports[S.date]));
@@ -753,6 +773,7 @@ document.addEventListener('click',async e=>{
     case 'goff': if(await confirmBox('Отключить группу?')){ await api('DELETE','group'); loadGroup(); } return;
     case 'grefresh': return loadGroup();
     case 'sendgroup': { t.style.opacity=.5; const r=await api('POST','group/send',{text:reportText([S.date],human(S.date),S.reports[S.date])}); t.style.opacity=1; return r.ok?(hapticOk(),toast('Отправлено в группу')):toast(r.data.error||'Не получилось','x'); }
+    case 'rejectreq': if(await confirmBox('Отклонить заявку?')){ const id=editing.requestId; await api('POST','request/'+id+'/reject'); S.requests=(S.requests||[]).filter(x=>x.id!==id); closeSheet(); toast('Заявка отклонена'); render(); } return;
     case 'vsave': return saveVideoForm();
     case 'vdelete': if(await confirmBox('Удалить видео?')){ delete S.videos[vEditing.id]; api('DELETE','video/'+vEditing.id); closeSheet(); render(); } return;
     case 'toggledone': S.showDone=!S.showDone; return render();
@@ -778,6 +799,7 @@ function merge(d){
   for(const r of d.reports||[]){ changed=true; if(r._deleted) delete S.reports[r.date]; else { const {date,_deleted,...rest}=r; S.reports[date]=rest; } }
   for(const v of d.videos||[]){ changed=true; if(v._deleted) delete S.videos[v.id]; else { delete v._deleted; S.videos[v.id]=v; } }
   if(d.me && S.me && (d.me.role!==S.me.role || !!d.me.cash_edit!==!!S.me.cash_edit)){ S.me=d.me; applyRole(); if(!can.settings&&S.tab==='settings') S.tab='bookings'; changed=true; }
+  if(d.requests){ const was=JSON.stringify(S.requests||[]); S.requests=d.requests; if(was!==JSON.stringify(d.requests)) changed=true; }
   if(d.t) lastSync=d.t;
   return changed;
 }
@@ -808,6 +830,9 @@ function applyRole(){
   const r=await api('GET','data?since=0'); merge(r.data);
   if(!r.data.settings && S.me.role==='owner') api('PUT','settings',S.settings);
   setSync('ok'); applyRole(); renderDays(); render();
+  const rq=new URLSearchParams(location.search).get('req');
+  if(rq){ if(!(S.requests||[]).find(x=>x.id===rq)){ const g=await api('GET','request/'+rq); if(g.ok&&g.data.request.status==='pending') (S.requests=S.requests||[]).push(g.data.request); }
+    if(S.tab!=='bookings') go('bookings'); openRequest(rq); }
   setInterval(sync,15000);
   document.addEventListener('visibilitychange',()=>{ if(!document.hidden) sync(); });
 })();

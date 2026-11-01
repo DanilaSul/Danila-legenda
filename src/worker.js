@@ -1,3 +1,4 @@
+import { parseBooking } from './parse.js';
 // QuestHouse — сервер для Telegram Mini App (Cloudflare Worker + D1)
 // Секреты: BOT_TOKEN (токен бота), WEBHOOK_SECRET (защита вебхука)
 
@@ -91,6 +92,8 @@ async function api(req, env, path) {
     out.reports = (await db.prepare('SELECT date, data, deleted FROM reports WHERE updated>?').bind(since).all()).results
       .map(r => ({ date: r.date, ...JSON.parse(r.data), _deleted: !!r.deleted }));
     out.me = u;
+    if (isOwner(u)) out.requests = (await db.prepare("SELECT id, fields, text, created FROM requests WHERE status='pending' ORDER BY created DESC LIMIT 50").all()).results
+      .map(r => ({ id: r.id, ...JSON.parse(r.fields || '{}'), text: r.text, created: r.created }));
     return json(out);
   }
 
@@ -103,6 +106,7 @@ async function api(req, env, path) {
       await db.prepare('INSERT INTO bookings (id,date,data,updated,deleted,by_user) VALUES (?,?,?,?,0,?) ON CONFLICT(id) DO UPDATE SET date=excluded.date,data=excluded.data,updated=excluded.updated,deleted=0,by_user=excluded.by_user')
         .bind(b.id, b.date, JSON.stringify(b), now(), u.tg_id).run();
       await bookingNotify(env, b, old ? JSON.parse(old.data) : null, old ? old.notified : 0);
+      if (b.requestId) await closeRequest(env, b.requestId, 'confirmed', `✅ Подтверждено в приложении (${escH(u.name)})`, b.id);
       return json({ ok: true });
     }
     if (m === 'DELETE') {
@@ -143,6 +147,14 @@ async function api(req, env, path) {
       return json({ ok: true });
     }
     if (m === 'DELETE') { await db.prepare('UPDATE videos SET deleted=1, updated=? WHERE id=?').bind(now(), parts[1]).run(); return json({ ok: true }); }
+  }
+
+  if (parts[0] === 'request') {
+    if (!isOwner(u)) return json({ error: 'forbidden' }, 403);
+    const r = await db.prepare('SELECT * FROM requests WHERE id=?').bind(parts[1]).first();
+    if (!r) return json({ error: 'not found' }, 404);
+    if (m === 'GET') return json({ request: { id: r.id, status: r.status, text: r.text, ...JSON.parse(r.fields || '{}') } });
+    if (m === 'POST' && parts[2] === 'reject') { await closeRequest(env, r.id, 'rejected', `❌ Отклонено (${escH(u.name)})`); return json({ ok: true }); }
   }
 
   if (parts[0] === 'group') {
@@ -283,10 +295,122 @@ async function dailyReport(env, date) {
   return groupSend(env, t.trim(), null, 'reports');
 }
 
+/* ---------- Заявки из чатов с клиентами (Telegram Business) ---------- */
+const FIELD_RU = { quest: 'квест', date: 'дата', time: 'время', name: 'имя', phone: 'телефон' };
+async function slotTaken(env, f) {
+  if (!f.date || !f.time || !f.quest) return null;
+  const rows = (await env.DB.prepare('SELECT data FROM bookings WHERE date=? AND deleted=0').bind(f.date).all()).results.map(r => JSON.parse(r.data));
+  return rows.find(b => b.time === f.time && b.quest === f.quest && b.status !== 'cancel') || null;
+}
+async function requestCard(env, r, closed) {
+  const f = JSON.parse(r.fields || '{}');
+  let t = `📩 <b>Заявка из чата с клиентом</b>\n`;
+  t += `👤 ${escH(f.name || '—')}${f.phone ? ' · ' + escH(f.phone) : ''}\n`;
+  t += `🎯 ${escH(f.quest || '—')}\n📅 ${f.date ? humanDate(f.date) : '—'} · ${escH(f.time || '—')}\n`;
+  if (f.guests) t += `👥 ${escH(f.guestsText || f.guests)} чел.\n`;
+  const miss = ['quest', 'date', 'time'].filter(k => !f[k]);
+  if (miss.length) t += `⚠️ Не распознано: ${miss.map(k => FIELD_RU[k]).join(', ')} — нажми «Изменить»\n`;
+  const busy = closed ? null : await slotTaken(env, f);
+  if (busy) t += `⚠️ Это время уже занято: ${escH(busy.name || 'бронь')}\n`;
+  t += `\n<i>${escH(String(r.text || '').slice(0, 600))}</i>`;
+  return t;
+}
+function requestButtons(env, r, origin) {
+  const f = JSON.parse(r.fields || '{}'), kb = [];
+  kb.push([{ text: '✅ Подтвердить', callback_data: `rq:ok:${r.id}` }, { text: '❌ Отклонить', callback_data: `rq:no:${r.id}` }]);
+  const row = [{ text: '✏️ Изменить', web_app: { url: `${origin}/?req=${r.id}` } }];
+  if (f.username) row.push({ text: '💬 Чат с клиентом', url: `https://t.me/${f.username}` });
+  kb.push(row);
+  return { inline_keyboard: kb };
+}
+async function sendRequestCards(env, r, origin) {
+  const owners = (await env.DB.prepare("SELECT tg_id FROM users WHERE role='owner' AND status='approved'").all()).results;
+  const text = await requestCard(env, r), cards = [];
+  for (const o of owners) {
+    const res = await tg(env, 'sendMessage', { chat_id: o.tg_id, text, parse_mode: 'HTML', reply_markup: requestButtons(env, r, origin) });
+    if (res.ok) cards.push({ chat_id: o.tg_id, message_id: res.result.message_id });
+  }
+  await env.DB.prepare('UPDATE requests SET cards=? WHERE id=?').bind(JSON.stringify(cards), r.id).run();
+}
+async function refreshRequestCards(env, r, origin, footer) {
+  const text = (await requestCard(env, r, !!footer)) + (footer ? `\n\n<b>${footer}</b>` : '');
+  for (const c of JSON.parse(r.cards || '[]'))
+    await tg(env, 'editMessageText', { chat_id: c.chat_id, message_id: c.message_id, text, parse_mode: 'HTML', ...(footer ? {} : { reply_markup: requestButtons(env, r, origin) }) });
+}
+async function closeRequest(env, id, status, footer, bookingId) {
+  const r = await env.DB.prepare('SELECT * FROM requests WHERE id=?').bind(id).first();
+  if (!r || r.status !== 'pending') return false;
+  await env.DB.prepare('UPDATE requests SET status=?, booking_id=?, updated=? WHERE id=?').bind(status, bookingId || null, now(), id).run();
+  await refreshRequestCards(env, r, '', footer);
+  return true;
+}
+async function onBusinessMessage(env, msg, origin) {
+  const conn = await getKV(env, 'business');
+  if (conn && msg.from && msg.from.id === conn.user_id) return; // наши собственные ответы клиенту не разбираем
+  const text = (msg.text || msg.caption || '').trim(); if (!text) return;
+  const st = await getSettings(env), t = now();
+  const opt = { today: tashDate(t), quests: st.quests || [] };
+  const extra = { username: msg.from && msg.from.username, client_id: msg.from && msg.from.id, client_name: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') };
+  // 1) уже есть заявка в работе — дополняем её (клиент дописал данные отдельным сообщением)
+  const pend = await env.DB.prepare("SELECT * FROM requests WHERE chat_id=? AND status='pending' AND updated>? ORDER BY created DESC LIMIT 1").bind(msg.chat.id, t - 6 * H).first();
+  if (pend) {
+    if (parseBooking(text, opt).score <= 0) return;
+    const all = pend.text + '\n' + text, p = parseBooking(all, opt);
+    const fields = { ...JSON.parse(pend.fields || '{}'), ...p.fields, ...extra };
+    await env.DB.prepare('UPDATE requests SET text=?, fields=?, updated=? WHERE id=?').bind(all, JSON.stringify(fields), t, pend.id).run();
+    await refreshRequestCards(env, { ...pend, text: all, fields: JSON.stringify(fields) }, origin);
+    return;
+  }
+  // 2) копим последние сообщения клиента (форма может прийти по частям) и проверяем, похоже ли на заявку
+  const buf = await env.DB.prepare('SELECT text, updated FROM chatbuf WHERE chat_id=?').bind(msg.chat.id).first();
+  const combined = ((buf && buf.updated > t - 30 * 60e3 ? buf.text + '\n' : '') + text).slice(-2000);
+  const p = parseBooking(combined, opt);
+  if (!p.isBooking) {
+    await env.DB.prepare('INSERT INTO chatbuf (chat_id,text,updated) VALUES (?,?,?) ON CONFLICT(chat_id) DO UPDATE SET text=excluded.text, updated=excluded.updated').bind(msg.chat.id, combined, t).run();
+    return;
+  }
+  await env.DB.prepare('DELETE FROM chatbuf WHERE chat_id=?').bind(msg.chat.id).run();
+  const fields = { ...p.fields, ...extra };
+  if (!fields.name && extra.client_name) fields.name = extra.client_name;
+  const r = { id: 'rq' + t.toString(36) + Math.random().toString(36).slice(2, 5), chat_id: msg.chat.id, text: combined, fields: JSON.stringify(fields), status: 'pending', created: t, updated: t };
+  await env.DB.prepare('INSERT INTO requests (id,chat_id,text,fields,status,created,updated) VALUES (?,?,?,?,?,?,?)').bind(r.id, r.chat_id, r.text, r.fields, r.status, r.created, r.updated).run();
+  await sendRequestCards(env, r, origin);
+}
+async function onCallback(env, cq, origin) {
+  const [kind, act, id] = String(cq.data || '').split(':');
+  const answer = (text, alert) => tg(env, 'answerCallbackQuery', { callback_query_id: cq.id, text, show_alert: !!alert });
+  if (kind !== 'rq') return answer('');
+  const u = await env.DB.prepare("SELECT * FROM users WHERE tg_id=? AND role='owner' AND status='approved'").bind(cq.from.id).first();
+  if (!u) return answer('Только владелец может подтверждать заявки', true);
+  const r = await env.DB.prepare('SELECT * FROM requests WHERE id=?').bind(id).first();
+  if (!r || r.status !== 'pending') return answer('Заявка уже обработана');
+  if (act === 'no') { await closeRequest(env, id, 'rejected', `❌ Отклонено (${escH(u.name)})`); return answer('Отклонено'); }
+  const f = JSON.parse(r.fields || '{}');
+  const miss = ['quest', 'date', 'time'].filter(k => !f[k]);
+  if (miss.length) return answer(`Не хватает: ${miss.map(k => FIELD_RU[k]).join(', ')}. Нажми «Изменить» и допиши.`, true);
+  const st = await getSettings(env), q = (st.quests || []).find(x => x.name === f.quest) || {};
+  const b = { id: 'b' + now().toString(36) + Math.random().toString(36).slice(2, 5), created: now(), date: f.date, time: f.time, quest: f.quest,
+    name: f.name || '', phone: f.phone || '', guests: f.guests || st.defaultGuests || 4, price: q.price || 0, discount: 0, discType: 'sum', prepay: 0, pay: '',
+    status: 'ok', comment: [f.guestsText ? f.guestsText + ' чел.' : '', 'из Telegram'].filter(Boolean).join(' · '), source: 'tg', requestId: id, by: u.name };
+  await env.DB.prepare('INSERT INTO bookings (id,date,data,updated,deleted,by_user) VALUES (?,?,?,?,0,?)').bind(b.id, b.date, JSON.stringify(b), now(), u.tg_id).run();
+  await closeRequest(env, id, 'confirmed', `✅ Подтверждено (${escH(u.name)}) — бронь добавлена`, b.id);
+  await bookingNotify(env, b, null, 0);
+  return answer('Бронь добавлена и отправлена в группу');
+}
+
 /* ---------- Вебхук бота ---------- */
 async function webhook(req, env) {
   if (req.headers.get('x-telegram-bot-api-secret-token') !== env.WEBHOOK_SECRET) return new Response('no', { status: 403 });
   const upd = await req.json().catch(() => ({}));
+  const origin = new URL(req.url).origin;
+  if (upd.business_connection) {
+    const c = upd.business_connection;
+    await setKV(env, 'business', { id: c.id, user_id: c.user.id, enabled: c.is_enabled, at: now() });
+    await notifyRole(env, ['owner'], c.is_enabled ? `✅ Бот подключён к аккаунту <b>${escH(c.user.first_name)}</b>. Заявки из чатов будут приходить сюда.` : '⛔️ Бот отключён от бизнес-аккаунта.');
+    return new Response('ok');
+  }
+  if (upd.business_message) { await onBusinessMessage(env, upd.business_message, origin); return new Response('ok'); }
+  if (upd.callback_query) { await onCallback(env, upd.callback_query, origin); return new Response('ok'); }
   const msg = upd.message;
   if (upd.my_chat_member && ['group', 'supergroup'].includes(upd.my_chat_member.chat.type) && ['member', 'administrator'].includes(upd.my_chat_member.new_chat_member.status)
       && !['member', 'administrator'].includes(upd.my_chat_member.old_chat_member.status))
